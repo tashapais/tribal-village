@@ -10,6 +10,7 @@ from typing import Any, Optional
 
 import numpy as np
 import psutil
+import torch
 from rich.console import Console
 
 from cogames.policy.signal_handler import DeferSigintContextManager
@@ -20,6 +21,7 @@ from pufferlib import pufferl
 from pufferlib import vector as pvector
 from pufferlib.pufferlib import set_buffers
 from tribal_village_env.cogames.policy import TribalPolicyEnvInfo
+from tribal_village_env.cogames.contrastive_trainer import ContrastiveConfig, ContrastiveLossModule
 
 logger = logging.getLogger("cogames.tribal_village.train")
 
@@ -357,5 +359,211 @@ def train(settings: dict[str, Any]) -> None:
         console.print(
             f"[yellow]No checkpoint file reported. Check {settings['checkpoints_path']} for saved models.[/yellow]"
         )
+
+    console.rule("[bold green]End Training")
+
+
+def train_with_contrastive(
+    settings: dict[str, Any],
+    contrastive_config: Optional[ContrastiveConfig] = None,
+) -> None:
+    """Run PPO training with optional contrastive learning.
+
+    This is a wrapper around train() that adds contrastive loss support.
+    The contrastive module learns state representations alongside PPO training.
+
+    Args:
+        settings: Training settings dict (same as train())
+        contrastive_config: Optional contrastive learning configuration
+    """
+    from tribal_village_env.build import ensure_nim_library_current
+
+    ensure_nim_library_current()
+
+    console = Console()
+
+    # Initialize contrastive module if enabled
+    contrastive_module = None
+    if contrastive_config and contrastive_config.enabled:
+        # Get observation shape from a test env
+        from tribal_village_env.environment import TribalVillageEnv
+        test_env = TribalVillageEnv(config={"max_steps": 10})
+        obs_shape = test_env.single_observation_space.shape
+        test_env.close()
+
+        device = settings.get("device", torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        contrastive_module = ContrastiveLossModule(obs_shape, contrastive_config, device)
+        console.print(f"[green]Contrastive learning enabled[/green]")
+        console.print(f"  - Coefficient: {contrastive_config.contrastive_coef}")
+        console.print(f"  - Embedding dim: {contrastive_config.embed_dim}")
+        console.print(f"  - Hidden dim: {contrastive_config.hidden_dim}")
+
+    # Set up environment and training (same as train())
+    backend_env = os.environ.get("TRIBAL_VECTOR_BACKEND", "").lower()
+    backend = pvector.Serial if backend_env == "serial" else pvector.Multiprocessing
+    if platform.system() == "Darwin":
+        multiprocessing.set_start_method("spawn", force=True)
+
+    vector_num_envs = settings.get("vector_num_envs")
+    vector_num_workers = settings.get("vector_num_workers")
+    cpu_cores = psutil.cpu_count(logical=False) or psutil.cpu_count(logical=True)
+    desired_workers = vector_num_workers or cpu_cores or 4
+    num_workers = min(desired_workers, max(1, cpu_cores or desired_workers))
+    num_envs = vector_num_envs or 64
+
+    adjusted_envs, adjusted_workers = _resolve_vector_counts(
+        num_envs,
+        num_workers,
+        envs_user_supplied=vector_num_envs is not None,
+        workers_user_supplied=vector_num_workers is not None,
+    )
+    num_envs = adjusted_envs
+    num_workers = adjusted_workers
+
+    vector_batch_size = settings.get("vector_batch_size") or num_envs
+
+    base_config = {"render_mode": "ansi", "render_scale": 1}
+    base_config.update(settings.get("env_config", {"max_steps": 1_000}))
+
+    env_creator = TribalEnvFactory(base_config)
+    base_cfg = env_creator.clone_cfg()
+
+    vecenv = pvector.make(
+        env_creator,
+        num_envs=num_envs,
+        num_workers=num_workers,
+        batch_size=vector_batch_size,
+        backend=backend,
+        env_kwargs={"cfg": base_cfg},
+    )
+    agents_per_batch = getattr(vecenv, "agents_per_batch", None)
+    if agents_per_batch is not None:
+        vecenv.num_agents = agents_per_batch
+    vecenv = FlattenVecEnv(vecenv)
+
+    driver_env = getattr(vecenv, "driver_env", None)
+    if driver_env is None:
+        raise RuntimeError("Vectorized environment did not expose driver_env.")
+
+    policy_env_info = TribalPolicyEnvInfo(
+        observation_space=driver_env.single_observation_space,
+        action_space=driver_env.single_action_space,
+        num_agents=max(1, getattr(driver_env, "num_agents", 1)),
+    )
+
+    policy_spec = PolicySpec(
+        class_path=settings["policy_class_path"],
+        data_path=settings.get("initial_weights_path"),
+    )
+    policy = initialize_or_load_policy(policy_env_info, policy_spec)
+    network = policy.network()
+    assert network is not None
+    network.to(settings["device"])
+
+    use_rnn = getattr(policy, "is_recurrent", lambda: False)()
+    if not use_rnn and "lstm" in settings["policy_class_path"].lower():
+        use_rnn = True
+
+    effective_agents_per_batch = agents_per_batch or max(1, getattr(driver_env, "num_agents", 1))
+    amended_batch_size = effective_agents_per_batch
+    amended_minibatch_size = min(settings.get("minibatch_size", 4096), amended_batch_size)
+    effective_timesteps = max(settings["steps"], amended_batch_size)
+
+    train_args = dict(
+        env="tribal_village",
+        device=settings["device"].type,
+        total_timesteps=effective_timesteps,
+        minibatch_size=amended_minibatch_size,
+        batch_size=amended_batch_size,
+        data_dir=str(settings["checkpoints_path"]),
+        checkpoint_interval=200,
+        bptt_horizon=64 if use_rnn else 1,
+        seed=settings["seed"],
+        use_rnn=use_rnn,
+        torch_deterministic=True,
+        cpu_offload=False,
+        optimizer="adam",
+        anneal_lr=True,
+        precision="float32",
+        learning_rate=0.0005,
+        gamma=0.995,
+        gae_lambda=0.90,
+        update_epochs=1,
+        clip_coef=0.2,
+        vf_coef=2.0,
+        vf_clip_coef=0.2,
+        max_grad_norm=1.5,
+        ent_coef=0.01,
+        adam_beta1=0.95,
+        adam_beta2=0.999,
+        adam_eps=1e-8,
+        max_minibatch_size=32768,
+        compile=False,
+        vtrace_rho_clip=1.0,
+        vtrace_c_clip=1.0,
+        prio_alpha=0.8,
+        prio_beta0=0.2,
+    )
+
+    trainer = pufferl.PuffeRL(train_args, vecenv, network)
+
+    # Observation buffer for contrastive learning
+    obs_buffer = []
+    dones_buffer = []
+    contrastive_update_freq = 10
+    contrastive_metrics = {}
+
+    with DeferSigintContextManager():
+        epoch = 0
+        while trainer.global_step < effective_timesteps:
+            # Evaluate and collect observations
+            trainer.evaluate()
+
+            # Collect observations for contrastive learning
+            if contrastive_module is not None and hasattr(trainer, 'obs'):
+                obs_buffer.append(trainer.obs.cpu().numpy() if torch.is_tensor(trainer.obs) else trainer.obs)
+                if hasattr(trainer, 'dones'):
+                    dones_buffer.append(trainer.dones.cpu().numpy() if torch.is_tensor(trainer.dones) else trainer.dones)
+
+            trainer.train()
+            epoch += 1
+
+            # Update contrastive encoder periodically
+            if contrastive_module is not None and epoch % contrastive_update_freq == 0 and len(obs_buffer) > 0:
+                obs_batch = np.concatenate(obs_buffer, axis=0)
+                dones_batch = np.concatenate(dones_buffer, axis=0) if dones_buffer else np.zeros(len(obs_batch))
+
+                # Subsample if too large
+                max_batch = 1024
+                if len(obs_batch) > max_batch:
+                    indices = np.random.choice(len(obs_batch), max_batch, replace=False)
+                    obs_batch = obs_batch[indices]
+                    dones_batch = dones_batch[indices]
+
+                obs_tensor = torch.from_numpy(obs_batch).to(contrastive_module.device)
+                dones_tensor = torch.from_numpy(dones_batch).to(contrastive_module.device)
+
+                contrastive_metrics = contrastive_module.update(obs_tensor, dones_tensor)
+
+                if contrastive_metrics:
+                    logger.info(f"Contrastive loss: {contrastive_metrics.get('contrastive/loss', 0):.4f}, "
+                               f"accuracy: {contrastive_metrics.get('contrastive/accuracy', 0):.3f}")
+
+                obs_buffer = []
+                dones_buffer = []
+
+    trainer.print_dashboard()
+    final_checkpoint = trainer.close()
+    vecenv.close()
+
+    console.rule("[bold green]Training Summary")
+    if contrastive_module is not None:
+        console.print("[green]Contrastive learning was enabled[/green]")
+        if contrastive_metrics:
+            console.print(f"  Final loss: {contrastive_metrics.get('contrastive/loss', 'N/A')}")
+            console.print(f"  Final accuracy: {contrastive_metrics.get('contrastive/accuracy', 'N/A')}")
+
+    if final_checkpoint:
+        console.print(f"Final checkpoint: [cyan]{final_checkpoint}[/cyan]")
 
     console.rule("[bold green]End Training")
