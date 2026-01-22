@@ -105,7 +105,6 @@ exec uv run python -c "
 import sys
 import os
 sys.path.insert(0, '${ROOT_DIR}')
-os.chdir('${ROOT_DIR}')
 
 import torch
 from tribal_village_env.cogames.train import train_with_contrastive
@@ -119,10 +118,10 @@ settings = {
     'checkpoints_path': '${LOG_DIR}',
     'batch_size': 65536,
     'minibatch_size': 4096,
-    'policy_class_path': 'mettagrid.policy.conv_lstm_policy.ConvLSTMPolicy',
+    'policy_class_path': 'mettagrid.policy.lstm.LSTMPolicy',
     'initial_weights_path': None,
-    'vector_num_envs': 64,
-    'vector_num_workers': 8,
+    'vector_num_envs': 4,
+    'vector_num_workers': 4,
     'env_config': {
         'max_steps': 1000,
         'heart_reward': 1.0,

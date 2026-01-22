@@ -260,13 +260,18 @@ def train(settings: dict[str, Any]) -> None:
     num_workers = max(1, getattr(vecenv, "num_workers", num_workers))
 
     effective_agents_per_batch = agents_per_batch or total_agents
-    amended_batch_size = effective_agents_per_batch
+    # PufferLib requires segments >= total_agents, where segments = batch_size / bptt_horizon
+    # So batch_size must be >= total_agents * bptt_horizon
+    min_batch_size = total_agents * bptt_horizon
+    amended_batch_size = max(settings["batch_size"], min_batch_size)
     batch_size = settings["batch_size"]
     if batch_size != amended_batch_size:
         logger.warning(
-            "batch_size=%s overridden to %s to match agents_per_batch; larger batches not yet supported",
+            "batch_size=%s adjusted to %s to satisfy PufferLib constraint (total_agents=%s * bptt_horizon=%s)",
             batch_size,
             amended_batch_size,
+            total_agents,
+            bptt_horizon,
         )
 
     minibatch_size = settings["minibatch_size"]
@@ -464,8 +469,12 @@ def train_with_contrastive(
     if not use_rnn and "lstm" in settings["policy_class_path"].lower():
         use_rnn = True
 
-    effective_agents_per_batch = agents_per_batch or max(1, getattr(driver_env, "num_agents", 1))
-    amended_batch_size = effective_agents_per_batch
+    bptt_horizon = 64 if use_rnn else 1
+    total_agents = agents_per_batch or max(1, getattr(driver_env, "num_agents", 1))
+    # PufferLib requires segments >= total_agents, where segments = batch_size / bptt_horizon
+    min_batch_size = total_agents * bptt_horizon
+    amended_batch_size = max(settings.get("batch_size", 65536), min_batch_size)
+    console.print(f"[yellow]Adjusted batch_size to {amended_batch_size} (total_agents={total_agents} * bptt_horizon={bptt_horizon})[/yellow]")
     amended_minibatch_size = min(settings.get("minibatch_size", 4096), amended_batch_size)
     effective_timesteps = max(settings["steps"], amended_batch_size)
 
@@ -477,7 +486,7 @@ def train_with_contrastive(
         batch_size=amended_batch_size,
         data_dir=str(settings["checkpoints_path"]),
         checkpoint_interval=200,
-        bptt_horizon=64 if use_rnn else 1,
+        bptt_horizon=bptt_horizon,
         seed=settings["seed"],
         use_rnn=use_rnn,
         torch_deterministic=True,
