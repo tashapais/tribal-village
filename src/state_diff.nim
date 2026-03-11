@@ -210,9 +210,8 @@ when defined(stateDiff):
     compareAndLog(diffState.prevSnapshot, newSnap)
     diffState.prevSnapshot = newSnap
 
-# Stub procs for when stateDiff is not defined - zero cost
+# Stub templates for when stateDiff is not defined - zero cost
 when not defined(stateDiff):
-  import types
-  proc ensureStateDiffInit*() = discard
-  proc capturePreStep*(env: Environment) = discard
-  proc comparePostStep*(env: Environment) = discard
+  template ensureStateDiffInit*() = discard
+  template capturePreStep*(env: untyped) = discard
+  template comparePostStep*(env: untyped) = discard

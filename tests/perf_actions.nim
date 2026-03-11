@@ -62,7 +62,7 @@ suite "Performance: Actions Subsystem":
     let env = newEnvironment()
 
     # After step, stepTeamPopCaps should be populated
-    var actions: array[MapAgents, uint8]
+    var actions: array[MapAgents, uint16]
     for i in 0 ..< MapAgents:
       actions[i] = 0  # NOOP
     env.step(addr actions)
@@ -91,7 +91,7 @@ suite "Performance: Actions Subsystem":
       check seen[i]
 
     # After a step, order should be shuffled (statistically unlikely to be sorted)
-    var actions: array[MapAgents, uint8]
+    var actions: array[MapAgents, uint16]
     env.step(addr actions)
 
     var sortedCount = 0
@@ -110,7 +110,7 @@ suite "Performance: Actions Subsystem":
 
     # constructionBuilders should be empty at start of each step
     # (we can't directly test this without stepping, but we verify it doesn't leak)
-    var actions: array[MapAgents, uint8]
+    var actions: array[MapAgents, uint16]
     for step in 0 ..< 10:
       env.step(addr actions)
       # Table should be cleared before construction tracking

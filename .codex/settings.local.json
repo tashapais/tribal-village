@@ -1,4 +1,5 @@
 {
+  "test_cmd": ["make", "test"],
   "permissions": {
     "allow": [
       "Bash(ls:*)",

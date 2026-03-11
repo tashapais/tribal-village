@@ -18,7 +18,7 @@ Text-only smoke test (no GUI):
 - `tribal-village play --render ansi --steps 128`
 
 Direct Nim run (bypasses Python CLI):
-- `nim r -d:release --path:src src/tribal_village.nim`
+- `nim r -d:release --path:src tribal_village.nim`
 
 ### Makefile Targets
 
@@ -34,18 +34,17 @@ Direct Nim run (bypasses Python CLI):
 | `make audit-settlement` | Audit settlement expansion metrics |
 | `make benchmark` | Steps/second benchmark with perf regression instrumentation |
 | `make clean` | Remove build artifacts |
-| `make install-hooks` | Install git hooks for development |
 
 Key files:
 - `tribal_village_env/cli.py` (CLI entry point)
 - `tribal_village_env/build.py` (Nim toolchain + lib build)
-- `tribal_village.nim` (Nim GUI main)
+- `tribal_village.nim` (Nim GUI main, at repo root)
 - `Makefile` (build/test/benchmark targets)
 
 ## What the CLI Actually Does
 - Ensures the Nim library is built and up-to-date via `ensure_nim_library_current()`.
 - Bootstraps `nimby` if needed and installs Nim into `~/.nimby/nim/bin`.
-- Launches `nim r -d:release tribal_village.nim` for GUI mode.
+- Launches `nim r -d:release --path:src tribal_village.nim` for GUI mode.
 
 ## Debug Flags and Timers
 Use these to confirm the sim is stepping or to identify stalls:
@@ -89,5 +88,5 @@ Fix:
 1. `make check` (confirm code compiles)
 2. `tribal-village --help` (confirm you are using the correct CLI)
 3. `tribal-village play --render ansi --steps 32` (confirm stepping)
-4. `nim r -d:release --path:src src/tribal_village.nim` (confirm Nim GUI path)
+4. `nim r -d:release --path:src tribal_village.nim` (confirm Nim GUI path)
 5. Check assets exist under `data/` and `data/oriented/`

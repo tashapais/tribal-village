@@ -62,3 +62,28 @@ const
   ChargeAttackUnits: set[AgentUnitClass] = {
     UnitScout, UnitBatteringRam
   }
+
+# ============================================================================
+# Production Queue Ready Entry Handling
+# ============================================================================
+
+proc tryConsumeProductionQueue*(env: Environment, agent, thing: Thing): bool =
+  ## If building has a ready production queue entry, convert villager to that unit.
+  ## Returns true if conversion happened, false otherwise.
+  if not thing.productionQueueHasReady():
+    return false
+  let unitClass = thing.consumeReadyQueueEntry()
+  applyUnitClass(env, agent, unitClass)
+  env.spawnSpawnEffect(agent.pos)
+  if agent.inventorySpear > 0:
+    agent.inventorySpear = 0
+  if thing.hasRallyPoint():
+    agent.rallyTarget = thing.rallyPoint
+  return true
+
+proc tryCraftAtBuilding*(env: Environment, agent, thing: Thing): bool =
+  ## Try to craft at a building if it has a craft station and is off cooldown.
+  ## Returns true if crafting happened, false otherwise.
+  if thing.cooldown == 0 and buildingHasCraftStation(thing.kind):
+    return env.tryCraftAtStation(agent, buildingCraftStation(thing.kind), thing)
+  return false

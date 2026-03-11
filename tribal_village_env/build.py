@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import urllib.request
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable
 
 DEFAULT_NIM_VERSION = os.environ.get("TRIBAL_VILLAGE_NIM_VERSION", "2.2.6")
 DEFAULT_NIMBY_VERSION = os.environ.get("TRIBAL_VILLAGE_NIMBY_VERSION", "0.1.11")
@@ -32,7 +32,7 @@ def _collect_source_files(project_root: Path) -> list[Path]:
     ]
 
 
-def _latest_mtime(paths: Iterable[Path]) -> Optional[float]:
+def _latest_mtime(paths: Iterable[Path]) -> float | None:
     mtimes = [path.stat().st_mtime for path in paths if path.exists()]
     if not mtimes:
         return None
@@ -82,7 +82,7 @@ def ensure_nim_library_current(verbose: bool = True) -> Path:
 
     source_files = _collect_source_files(project_root)
     latest_source_mtime = _latest_mtime(source_files)
-    lib_mtime: Optional[float] = (
+    lib_mtime: float | None = (
         target_path.stat().st_mtime if target_path.exists() else None
     )
 

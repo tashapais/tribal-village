@@ -42,6 +42,7 @@ proc isBlockedForPlacement(env: Environment, pos: IVec2,
                            allowWater: bool = false,
                            checkFrozen: bool = true): bool {.inline.} =
   (not allowWater and env.terrain[pos.x][pos.y] == Water) or
+    env.terrain[pos.x][pos.y] == Mountain or
     (checkFrozen and isTileFrozen(pos, env))
 
 type AttemptPredicate = proc(pos: IVec2, attempt: int): bool {.closure.}
@@ -285,7 +286,7 @@ proc initTerrainAndBiomes(env: Environment, rng: var Rand, seed: int): seq[TreeO
   # Apply biome elevation (inlined)
   for x in 0 ..< MapWidth:
     for y in 0 ..< MapHeight:
-      if env.terrain[x][y] in {Water, Bridge}:
+      if env.terrain[x][y] in {Water, Bridge, Mountain}:
         env.elevation[x][y] = 0
         continue
       let biome = env.biomes[x][y]
@@ -346,7 +347,7 @@ proc initTerrainAndBiomes(env: Environment, rng: var Rand, seed: int): seq[TreeO
   var cliffCount = 0
   for x in MapBorder ..< MapWidth - MapBorder:
     for y in MapBorder ..< MapHeight - MapBorder:
-      if env.terrain[x][y] == Water or env.terrain[x][y] == Road or
+      if env.terrain[x][y] in {Water, Mountain, Road} or
          isRampTerrain(env.terrain[x][y]):
         continue
       let elev = env.elevation[x][y]
@@ -358,7 +359,7 @@ proc initTerrainAndBiomes(env: Environment, rng: var Rand, seed: int): seq[TreeO
           continue
         if env.elevation[nx][ny] <= elev:
           continue
-        if env.terrain[nx][ny] == Water or env.terrain[nx][ny] == Road or
+        if env.terrain[nx][ny] in {Water, Mountain, Road} or
            isRampTerrain(env.terrain[nx][ny]):
           continue
         inc cliffCount
@@ -383,7 +384,7 @@ proc initTerrainAndBiomes(env: Environment, rng: var Rand, seed: int): seq[TreeO
   # Apply cliffs (inlined)
   for x in 0 ..< MapWidth:
     for y in 0 ..< MapHeight:
-      if env.terrain[x][y] == Water:
+      if env.terrain[x][y] in {Water, Mountain}:
         continue
       let elev = env.elevation[x][y]
       proc isLower(dx, dy: int): bool =
@@ -458,6 +459,28 @@ proc initTerrainAndBiomes(env: Environment, rng: var Rand, seed: int): seq[TreeO
 
       if hasCliff:
         env.add(Thing(kind: kind, pos: ivec2(x.int32, y.int32)))
+
+  # Place waterfalls where water tiles border higher-elevation non-water terrain.
+  # Waterfalls appear on water tiles that are adjacent to cliffs/elevated terrain,
+  # indicating water cascading down from the higher ground.
+  for x in 0 ..< MapWidth:
+    for y in 0 ..< MapHeight:
+      if env.terrain[x][y] notin WaterTerrain:
+        continue
+      let waterElev = env.elevation[x][y]  # Always 0 for water tiles
+      # Check each cardinal direction for higher non-water neighbor
+      if y > 0 and env.terrain[x][y - 1] notin WaterTerrain and
+         env.elevation[x][y - 1] > waterElev:
+        env.add(Thing(kind: WaterfallN, pos: ivec2(x.int32, y.int32)))
+      if x < MapWidth - 1 and env.terrain[x + 1][y] notin WaterTerrain and
+         env.elevation[x + 1][y] > waterElev:
+        env.add(Thing(kind: WaterfallE, pos: ivec2(x.int32, y.int32)))
+      if y < MapHeight - 1 and env.terrain[x][y + 1] notin WaterTerrain and
+         env.elevation[x][y + 1] > waterElev:
+        env.add(Thing(kind: WaterfallS, pos: ivec2(x.int32, y.int32)))
+      if x > 0 and env.terrain[x - 1][y] notin WaterTerrain and
+         env.elevation[x - 1][y] > waterElev:
+        env.add(Thing(kind: WaterfallW, pos: ivec2(x.int32, y.int32)))
 
   # Resource nodes are spawned as Things later; base terrain stays walkable.
 
@@ -968,7 +991,7 @@ proc placeStartingResourceNodes(env: Environment, center: IVec2, rng: var Rand) 
 
   # Gold cluster
   block:
-    let count = randIntInclusive(rng, 3, 4)
+    let count = randIntInclusive(rng, 5, 7)
     var spot = findResourceSpot(env, center, rng, 8, 15, ResourceGround)
     if spot.x < 0:
       spot = rng.randomEmptyPos(env)
@@ -1283,7 +1306,7 @@ proc initTeams(env: Environment, rng: var Rand): seq[IVec2] =
     let agentId = totalAgentsSpawned
 
     # Store neutral color for agents without a team
-    env.agentColors[agentId] = color(0.5, 0.5, 0.5, 1.0)  # Gray for unaffiliated agents
+    env.agentColors[agentId] = NeutralGray  # Gray for unaffiliated agents
 
     env.add(Thing(
       kind: Agent,
@@ -1304,6 +1327,221 @@ proc initTeams(env: Environment, rng: var Rand): seq[IVec2] =
     totalAgentsSpawned += 1
 
   result = villageCenters
+
+# ---------------------------------------------------------------------------
+# Village pond generation: local water access for dock building
+# ---------------------------------------------------------------------------
+
+const
+  PondMinTiles = 3
+  PondMaxTiles = 5
+  PondSearchRadius = 10       # Max distance from village center to pond center
+  PondMinDistFromCenter = 4   # Min distance so pond doesn't overlap village
+  StreamMaxPathLen = 200      # BFS cutoff for stream pathfinding
+  StreamTerrainType = ShallowWater
+
+proc findNearestRiverTile(env: Environment, pos: IVec2, maxRadius: int): IVec2 =
+  ## Find the nearest Water tile (river) within maxRadius using spiral scan.
+  result = ivec2(-1, -1)
+  var bestDist = int.high
+  for dx in -maxRadius .. maxRadius:
+    for dy in -maxRadius .. maxRadius:
+      let x = pos.x + dx.int32
+      let y = pos.y + dy.int32
+      if x < MapBorder.int32 or x >= (MapWidth - MapBorder).int32 or
+         y < MapBorder.int32 or y >= (MapHeight - MapBorder).int32:
+        continue
+      if env.terrain[x][y] != Water:
+        continue
+      let dist = abs(dx) + abs(dy)
+      if dist < bestDist:
+        bestDist = dist
+        result = ivec2(x, y)
+
+proc canPlacePondTile(env: Environment, pos: IVec2): bool =
+  ## Check if a tile can be converted to pond water.
+  if not isValidPos(pos):
+    return false
+  let t = env.terrain[pos.x][pos.y]
+  if t in {Water, ShallowWater, Bridge, Road}:
+    return false
+  if t in RampTerrain:
+    return false
+  # Don't overwrite tiles that have things on them
+  if not isNil(env.grid[pos.x][pos.y]):
+    return false
+  if not isNil(env.getBackgroundThing(pos)):
+    return false
+  true
+
+proc placePond(env: Environment, center: IVec2, tileCount: int, rng: var Rand): seq[IVec2] =
+  ## Place a small cluster of Water tiles around center. Returns placed positions.
+  ## Uses flood-fill style expansion from center.
+  result = @[]
+  if not canPlacePondTile(env, center):
+    return
+  setTerrain(env, center, Water)
+  result.add(center)
+  # Expand outward from placed tiles
+  var frontier: seq[IVec2] = @[center]
+  let dirs = [ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1)]
+  while result.len < tileCount and frontier.len > 0:
+    let idx = randIntExclusive(rng, 0, frontier.len)
+    let src = frontier[idx]
+    var expanded = false
+    # Try each direction in random order
+    var dirOrder = [0, 1, 2, 3]
+    for i in countdown(3, 1):
+      let j = randIntInclusive(rng, 0, i)
+      swap(dirOrder[i], dirOrder[j])
+    for di in dirOrder:
+      let nb = src + dirs[di]
+      if canPlacePondTile(env, nb) and nb notin result:
+        setTerrain(env, nb, Water)
+        result.add(nb)
+        frontier.add(nb)
+        expanded = true
+        break
+    if not expanded:
+      # Remove exhausted tile from frontier
+      frontier.del(idx)
+
+proc canPlaceStreamTile(env: Environment, pos: IVec2): bool =
+  ## Check if a tile can be part of a stream path.
+  if not isValidPos(pos):
+    return false
+  let t = env.terrain[pos.x][pos.y]
+  # Can walk through existing water, shallow water, bridges
+  if t in {Water, ShallowWater, Bridge}:
+    return true
+  # Can convert empty/natural terrain to stream
+  if t in RampTerrain:
+    return false
+  if t == Road:
+    return false  # Streams don't overwrite roads (bridges handle crossings)
+  # Don't overwrite tiles with things
+  if not isNil(env.grid[pos.x][pos.y]):
+    return false
+  if not isNil(env.getBackgroundThing(pos)):
+    return false
+  true
+
+proc reconstructPath(cameFrom: seq[tuple[pos, parent: IVec2]], endPos: IVec2): seq[IVec2] =
+  ## Reconstruct BFS path by following parent pointers backward from endPos.
+  result = @[]
+  var cur = endPos
+  var safety = cameFrom.len + 1
+  while cur.x >= 0 and safety > 0:
+    result.add(cur)
+    var foundParent = false
+    for entry in cameFrom:
+      if entry.pos == cur:
+        cur = entry.parent
+        foundParent = true
+        break
+    if not foundParent:
+      break
+    dec safety
+  # Reverse to get start-to-end order
+  for i in 0 ..< result.len div 2:
+    swap(result[i], result[result.len - 1 - i])
+
+proc bfsStreamPath(env: Environment, start, goal: IVec2): seq[IVec2] =
+  ## BFS pathfind from start to goal for stream placement.
+  ## Returns path from start to nearest river water tile.
+  result = @[]
+  if start.x < 0 or goal.x < 0:
+    return
+  var queue: seq[IVec2] = @[start]
+  var cameFrom: seq[tuple[pos, parent: IVec2]] = @[]
+  cameFrom.add((pos: start, parent: ivec2(-1, -1)))
+  let dirs = [ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1)]
+  var head = 0
+  while head < queue.len and head < StreamMaxPathLen:
+    let current = queue[head]
+    inc head
+    if current == goal:
+      return reconstructPath(cameFrom, current)
+    # Accept reaching any Water tile as "connected to river"
+    if current != start and env.terrain[current.x][current.y] == Water:
+      return reconstructPath(cameFrom, current)
+    for dir in dirs:
+      let nb = current + dir
+      if not canPlaceStreamTile(env, nb):
+        continue
+      # Inline visited check to avoid closure capture
+      var alreadyVisited = false
+      for entry in cameFrom:
+        if entry.pos == nb:
+          alreadyVisited = true
+          break
+      if alreadyVisited:
+        continue
+      cameFrom.add((pos: nb, parent: current))
+      queue.add(nb)
+  result = @[]  # No path found
+
+proc generateVillagePonds(env: Environment, villageCenters: seq[IVec2], rng: var Rand) =
+  ## For each village, place a small pond nearby and connect it to the river
+  ## via a narrow stream of ShallowWater.
+  for vc in villageCenters:
+    # Find a valid pond center within PondSearchRadius of village
+    var pondCenter = ivec2(-1, -1)
+    var bestDist = int.high
+    # Try random positions, pick first valid one close to village
+    for attempt in 0 ..< 80:
+      let dx = randIntInclusive(rng, -PondSearchRadius, PondSearchRadius)
+      let dy = randIntInclusive(rng, -PondSearchRadius, PondSearchRadius)
+      let dist = abs(dx) + abs(dy)
+      if dist < PondMinDistFromCenter or dist > PondSearchRadius:
+        continue
+      let candidate = ivec2(vc.x + dx.int32, vc.y + dy.int32)
+      if not canPlacePondTile(env, candidate):
+        continue
+      # Verify at least a few neighbors are also placeable (room for pond)
+      var openNeighbors = 0
+      for ndx in -1 .. 1:
+        for ndy in -1 .. 1:
+          if ndx == 0 and ndy == 0: continue
+          let nb = candidate + ivec2(ndx.int32, ndy.int32)
+          if canPlacePondTile(env, nb):
+            inc openNeighbors
+      if openNeighbors < 2:
+        continue
+      if dist < bestDist:
+        bestDist = dist
+        pondCenter = candidate
+        if dist <= PondMinDistFromCenter + 2:
+          break  # Good enough, stop searching
+
+    if pondCenter.x < 0:
+      continue  # Skip this village if no valid pond location found
+
+    # Place the pond
+    let pondSize = randIntInclusive(rng, PondMinTiles, PondMaxTiles)
+    let pondTiles = placePond(env, pondCenter, pondSize, rng)
+    if pondTiles.len == 0:
+      continue
+
+    # Find nearest river tile from pond center (search wider area)
+    let riverTarget = findNearestRiverTile(env, pondCenter, MapWidth)
+    if riverTarget.x < 0:
+      continue  # No river found (shouldn't happen normally)
+
+    # BFS from pond edge to river
+    let streamPath = bfsStreamPath(env, pondCenter, riverTarget)
+    if streamPath.len == 0:
+      continue  # No path found; pond still provides local water
+
+    # Place stream tiles along path
+    for pos in streamPath:
+      let t = env.terrain[pos.x][pos.y]
+      if t == Water or t == Bridge:
+        continue  # Don't overwrite deep water or bridges
+      if t == ShallowWater:
+        continue  # Already a stream tile
+      if canPlacePondTile(env, pos):
+        setTerrain(env, pos, StreamTerrainType)
 
 proc initNeutralStructures(env: Environment, rng: var Rand) =
   ## Place goblin hives, spawners, and other neutral structures.
@@ -1367,7 +1605,7 @@ proc initNeutralStructures(env: Environment, rng: var Rand) =
       inc tries
     fallback
 
-  let goblinTint = color(0.35, 0.80, 0.35, 1.0)
+  let goblinTint = GoblinTint
   for hiveIndex in 0 ..< GoblinHiveCount:
     let goblinHivePos = findGoblinHivePos(goblinHivePositions, rng)
     goblinHivePositions.add(goblinHivePos)
@@ -1665,6 +1903,147 @@ proc initResources(env: Environment, rng: var Rand, treeOases: seq[TreeOasis]) =
     placeBiomeResourceClusters(env, rng, max(10, MapWidth div 30),
       2, 6, 0.7, 0.45, Stalagmite, ItemStone, BiomeCavesType)
 
+proc initContestedZones(env: Environment, rng: var Rand) =
+  ## Place resource-rich contested zones near the map center.
+  ## These zones have concentrated gold, stone, wheat, bushes, cows, and relics
+  ## to incentivize teams to fight over central territory.
+  let centerX = MapWidth div 2
+  let centerY = MapHeight div 2
+
+  # Define zone centers arranged around the trading hub.
+  # 3 zones placed at ~120 degree intervals around center, offset enough
+  # to avoid the trading hub (TradingHubSize/2 + clearance).
+  let hubHalf = TradingHubSize div 2
+  let offset = hubHalf + ContestedZoneHubClearance
+  type ZonePos = tuple[x, y: int]
+  var zoneCenters: seq[ZonePos] = @[]
+
+  # NW of center
+  zoneCenters.add((x: centerX - offset, y: centerY - offset + 4))
+  # NE of center
+  zoneCenters.add((x: centerX + offset, y: centerY - offset + 4))
+  # S of center
+  zoneCenters.add((x: centerX, y: centerY + offset))
+
+  let zoneCount = min(ContestedZoneCount, zoneCenters.len)
+
+  for zoneIdx in 0 ..< zoneCount:
+    let zx = zoneCenters[zoneIdx].x
+    let zy = zoneCenters[zoneIdx].y
+    let radius = ContestedZoneRadius
+
+    # Apply distinctive tint to zone tiles and set terrain to Fertile
+    # (lighter grass) so players can visually identify the contested area.
+    for dx in -radius .. radius:
+      for dy in -radius .. radius:
+        let dist = dx * dx + dy * dy
+        if dist > radius * radius:
+          continue
+        let px = zx + dx
+        let py = zy + dy
+        if px < MapBorder or px >= MapWidth - MapBorder or
+           py < MapBorder or py >= MapHeight - MapBorder:
+          continue
+        # Don't overwrite water, roads, or bridges
+        if env.terrain[px][py] in {Water, ShallowWater, Road, Bridge}:
+          continue
+        # Set distinctive terrain and tint
+        env.terrain[px][py] = Fertile
+        env.baseTintColors[px][py] = ContestedZoneTint
+
+    # Clear any trees/walls in the inner area to make space for resources
+    let innerRadius = radius - 2
+    for dx in -innerRadius .. innerRadius:
+      for dy in -innerRadius .. innerRadius:
+        let dist = dx * dx + dy * dy
+        if dist > innerRadius * innerRadius:
+          continue
+        let px = zx + dx
+        let py = zy + dy
+        if px < MapBorder or px >= MapWidth - MapBorder or
+           py < MapBorder or py >= MapHeight - MapBorder:
+          continue
+        let pos = ivec2(px.int32, py.int32)
+        let existing = env.getThing(pos)
+        if not existing.isNil and existing.kind in {Tree, Wall}:
+          removeThing(env, existing)
+
+    # Place gold mines (concentrated cluster)
+    block:
+      let goldCenter = ivec2((zx + randIntInclusive(rng, -3, 3)).int32,
+                              (zy + randIntInclusive(rng, -3, 3)).int32)
+      addResourceNode(env, goldCenter, Gold, ItemGold, MineDepositAmount)
+      var candidates = gatherEmptyAround(env, goldCenter, 1, 2, ContestedZoneGoldCount - 1)
+      let toPlace = min(ContestedZoneGoldCount - 1, candidates.len)
+      for i in 0 ..< toPlace:
+        addResourceNode(env, candidates[i], Gold, ItemGold, MineDepositAmount)
+
+    # Place stone mines
+    block:
+      let stoneCenter = ivec2((zx + randIntInclusive(rng, -4, 4)).int32,
+                               (zy + randIntInclusive(rng, -4, 4)).int32)
+      addResourceNode(env, stoneCenter, Stone, ItemStone, MineDepositAmount)
+      var candidates = gatherEmptyAround(env, stoneCenter, 1, 2, ContestedZoneStoneCount - 1)
+      let toPlace = min(ContestedZoneStoneCount - 1, candidates.len)
+      for i in 0 ..< toPlace:
+        addResourceNode(env, candidates[i], Stone, ItemStone, MineDepositAmount)
+
+    # Place wheat cluster
+    block:
+      let wheatPos = ivec2((zx + randIntInclusive(rng, -3, 3)).int32,
+                            (zy + randIntInclusive(rng, -3, 3)).int32)
+      placeResourceCluster(env, wheatPos.x.int, wheatPos.y.int,
+        ContestedZoneWheatSize, 0.85, 0.35, Wheat, ItemWheat, ResourceGround, rng)
+
+    # Place bush cluster
+    block:
+      let bushPos = ivec2((zx + randIntInclusive(rng, -4, 4)).int32,
+                           (zy + randIntInclusive(rng, -4, 4)).int32)
+      placeResourceCluster(env, bushPos.x.int, bushPos.y.int,
+        ContestedZoneBushSize, ClusterDensityMedium, ClusterFalloffSteep, Bush, ItemPlant, ResourceGround, rng)
+
+    # Place cows in the zone
+    block:
+      var cowsPlaced = 0
+      var attempts = 0
+      while cowsPlaced < ContestedZoneCowCount and attempts < ContestedZoneCowCount * 10:
+        inc attempts
+        let dx = randIntInclusive(rng, -radius + 2, radius - 2)
+        let dy = randIntInclusive(rng, -radius + 2, radius - 2)
+        if dx * dx + dy * dy > (radius - 2) * (radius - 2):
+          continue
+        let pos = ivec2((zx + dx).int32, (zy + dy).int32)
+        if not isValidPos(pos) or not env.isSpawnable(pos):
+          continue
+        if env.terrain[pos.x][pos.y] in {Water, ShallowWater}:
+          continue
+        let cow = Thing(
+          kind: Cow,
+          pos: pos,
+          orientation: Orientation.W,
+          herdId: 100 + zoneIdx  # Unique herd IDs for contested zone cows
+        )
+        cow.inventory = emptyInventory()
+        setInv(cow, ItemMeat, ResourceNodeInitial)
+        env.add(cow)
+        inc cowsPlaced
+
+    # Place relic
+    for _ in 0 ..< ContestedZoneRelics:
+      for attempt in 0 ..< 20:
+        let dx = randIntInclusive(rng, -radius + 3, radius - 3)
+        let dy = randIntInclusive(rng, -radius + 3, radius - 3)
+        let pos = ivec2((zx + dx).int32, (zy + dy).int32)
+        if not isValidPos(pos) or not env.isSpawnable(pos):
+          continue
+        if env.terrain[pos.x][pos.y] in {Water, ShallowWater}:
+          continue
+        let relic = Thing(kind: Relic, pos: pos)
+        relic.inventory = emptyInventory()
+        setInv(relic, ItemGold, 1)
+        env.add(relic)
+        break
+
 proc initWildlife(env: Environment, rng: var Rand) =
   ## Spawn wildlife: cows, bears, and wolves.
   proc chooseGroupSize(remaining, minSize, maxSize: int, rng: var Rand): int =
@@ -1793,7 +2172,10 @@ proc init(env: Environment, seed: int = 0) =
   initTradingHub(env, rng)
 
   # Phase 4: Teams, villages, altars, agents
-  discard initTeams(env, rng)
+  let villageCenters = initTeams(env, rng)
+
+  # Phase 4b: Village ponds with stream connections to river
+  generateVillagePonds(env, villageCenters, rng)
 
   # Phase 5: Goblin hives, spawners, neutral structures
   initNeutralStructures(env, rng)
@@ -1823,6 +2205,9 @@ proc init(env: Environment, seed: int = 0) =
             env.add(cp)
             placed = true
             break
+
+  # Phase 6c: Contested resource zones near map center
+  initContestedZones(env, rng)
 
   # Phase 7: Wildlife (cows, bears, wolves)
   initWildlife(env, rng)

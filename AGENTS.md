@@ -11,7 +11,7 @@ At the start of each prompt, run:
 1. Ensure Nim code compiles:
    `make check`
 2. Ensure the main play command runs (15s timeout):
-   `timeout 15s nim r -d:release --path:src src/tribal_village.nim`
+   `timeout 15s nim r -d:release --path:src tribal_village.nim`
    (On macOS without `timeout`, use `gtimeout` from coreutils.)
 3. Run the test suite as the final step:
    `make test-nim`

@@ -2,7 +2,7 @@
 
 Date: 2026-01-28
 Owner: Design / Systems
-Status: Draft
+Status: Active
 
 ## Generation pipeline (high level)
 Map generation is staged so terrain, biomes, elevation, and cliffs stay

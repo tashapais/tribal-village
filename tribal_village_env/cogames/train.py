@@ -6,7 +6,7 @@ import logging
 import multiprocessing
 import os
 import platform
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import psutil
@@ -20,7 +20,7 @@ from pufferlib import pufferl
 from pufferlib import vector as pvector
 from pufferlib.pufferlib import set_buffers
 from tribal_village_env.cogames.policy import TribalPolicyEnvInfo
-from tribal_village_env.constants import (
+from tribal_village_env.config import (
     DEFAULT_ADAM_BETA1,
     DEFAULT_ADAM_BETA2,
     DEFAULT_ADAM_EPS,
@@ -47,6 +47,15 @@ from tribal_village_env.constants import (
 logger = logging.getLogger("cogames.tribal_village.train")
 
 
+def _auto_adjust(name: str, current: int, desired: int, user_supplied: bool) -> int:
+    """Log and return *desired* when it differs from *current*, else pass through."""
+    if desired != current:
+        log_fn = logger.warning if user_supplied else logger.info
+        log_fn("Auto-adjusting %s from %s to %s", name, current, desired)
+        return desired
+    return current
+
+
 class TribalEnvFactory:
     """Picklable factory for vectorized Tribal Village environments."""
 
@@ -58,9 +67,9 @@ class TribalEnvFactory:
 
     def __call__(
         self,
-        cfg: Optional[dict[str, Any]] = None,
-        buf: Optional[Any] = None,
-        seed: Optional[int] = None,
+        cfg: dict[str, Any] | None = None,
+        buf: Any | None = None,
+        seed: int | None = None,
     ) -> Any:
         from tribal_village_env.environment import TribalVillageEnv
 
@@ -176,24 +185,12 @@ def train(settings: dict[str, Any]) -> None:
         envs_user_supplied=vector_num_envs is not None,
         workers_user_supplied=vector_num_workers is not None,
     )
-    if adjusted_envs != num_envs:
-        log_fn = logger.warning if vector_num_envs is not None else logger.info
-        log_fn(
-            "Auto-adjusting num_envs from %s to %s so num_workers=%s divides evenly",
-            num_envs,
-            adjusted_envs,
-            adjusted_workers,
-        )
-        num_envs = adjusted_envs
-    if adjusted_workers != num_workers:
-        log_fn = logger.warning if vector_num_workers is not None else logger.info
-        log_fn(
-            "Auto-adjusting num_workers from %s to %s to evenly divide num_envs=%s",
-            num_workers,
-            adjusted_workers,
-            num_envs,
-        )
-        num_workers = adjusted_workers
+    num_envs = _auto_adjust(
+        "num_envs", num_envs, adjusted_envs, vector_num_envs is not None
+    )
+    num_workers = _auto_adjust(
+        "num_workers", num_workers, adjusted_workers, vector_num_workers is not None
+    )
 
     vector_batch_size = settings.get("vector_batch_size") or num_envs
     if num_envs % vector_batch_size != 0:

@@ -17,10 +17,6 @@ CLI (training subcommand, requires the `cogames` extra):
 CoGames CLI (optional):
 - `cogames train-tribal -p class=tribal --steps 1000000 --parallel-envs 8 --num-workers 4 --log-outputs`
 
-Metta workspace helper:
-- `scripts/train_metta.sh --steps 1000000 --parallel-envs 8 --num-workers 4 --log-outputs`
-- Set `METTA_DIR=/path/to/metta` if the repo lives elsewhere.
-
 Key files:
 - `tribal_village_env/cli.py` (CLI wiring)
 - `tribal_village_env/cogames/cli.py`

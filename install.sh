@@ -50,7 +50,4 @@ lib = ensure_nim_library_current()
 print(f"Nim library ready: {lib}")
 PY
 
-echo "==> Installing git hooks"
-"$ROOT_DIR/scripts/install_hooks.sh"
-
 echo "==> Done. Activate with: source ${VENV_DIR}/bin/activate"

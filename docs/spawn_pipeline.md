@@ -2,7 +2,7 @@
 
 Date: 2026-01-19
 Owner: Docs / Systems
-Status: Draft
+Status: Active
 
 ## Purpose
 This document summarizes the spawn and placement flow in `src/spawn.nim` once the

@@ -157,8 +157,8 @@ const
     "plant_lantern", "plant_resource", "build", "orient", "set_rally_point"
   ]
 
-proc encodeAction*(verb: uint8, argument: uint8): uint8 =
-  uint8(verb.int * ActionArgumentCount + argument.int)
+proc encodeAction*(verb: uint16, argument: uint16): uint16 =
+  uint16(verb.int * ActionArgumentCount + argument.int)
 
 {.push inline.}
 proc orientationToVec*(orientation: Orientation): IVec2 =

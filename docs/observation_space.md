@@ -2,7 +2,7 @@
 
 Date: 2026-01-31
 Owner: Engineering / AI
-Status: Draft
+Status: Active
 
 ## Shape and layout
 - **Spatial size:** `ObservationWidth` x `ObservationHeight` = **11 x 11**.

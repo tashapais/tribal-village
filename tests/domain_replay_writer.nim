@@ -70,7 +70,7 @@ suite "Replay Writer - No-Op Safety":
   test "maybeLogReplayStep safe with nil writer":
     setWriter(nil)
     let env = makeEmptyEnv()
-    var actions: array[MapAgents, uint8]
+    var actions: array[MapAgents, uint16]
     rw.maybeLogReplayStep(env, addr actions)
     # No crash = pass
 
@@ -90,7 +90,7 @@ suite "Replay Writer - No-Op Safety":
     rw.maybeStartReplayEpisode(env)
     env.currentStep = 0  # stepIndex = -1
 
-    var actions: array[MapAgents, uint8]
+    var actions: array[MapAgents, uint16]
     rw.maybeLogReplayStep(env, addr actions)
     # No crash = pass
 
@@ -108,7 +108,7 @@ suite "Replay Writer - Full Replay Output":
     rw.maybeStartReplayEpisode(env)
 
     for i in 0 ..< 5:
-      var actions: array[MapAgents, uint8]
+      var actions: array[MapAgents, uint16]
       env.step(addr actions)
       rw.maybeLogReplayStep(env, addr actions)
 
@@ -150,7 +150,7 @@ suite "Replay Writer - Full Replay Output":
     let env = newEnvironment()
     rw.maybeStartReplayEpisode(env)
 
-    var actions: array[MapAgents, uint8]
+    var actions: array[MapAgents, uint16]
     env.step(addr actions)
     rw.maybeLogReplayStep(env, addr actions)
 
@@ -178,7 +178,7 @@ suite "Replay Writer - Full Replay Output":
     let env = newEnvironment()
     rw.maybeStartReplayEpisode(env)
 
-    var actions: array[MapAgents, uint8]
+    var actions: array[MapAgents, uint16]
     env.step(addr actions)
     rw.maybeLogReplayStep(env, addr actions)
 
@@ -213,7 +213,7 @@ suite "Replay Writer - Full Replay Output":
     let env = newEnvironment()
     rw.maybeStartReplayEpisode(env)
 
-    var actions: array[MapAgents, uint8]
+    var actions: array[MapAgents, uint16]
     env.step(addr actions)
     rw.maybeLogReplayStep(env, addr actions)
     rw.maybeFinalizeReplay(env)
@@ -237,7 +237,7 @@ suite "Replay Writer - Full Replay Output":
 
     let numSteps = 10
     for i in 0 ..< numSteps:
-      var actions: array[MapAgents, uint8]
+      var actions: array[MapAgents, uint16]
       env.step(addr actions)
       rw.maybeLogReplayStep(env, addr actions)
 

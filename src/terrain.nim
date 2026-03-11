@@ -19,6 +19,7 @@ type
     Sand
     Snow
     Mud
+    Mountain
     RampUpN
     RampUpS
     RampUpW
@@ -47,6 +48,7 @@ const
     Sand: 0.9'f32,       # 10% slower in sand
     Snow: 0.8'f32,       # 20% slower in snow
     Mud: 0.7'f32,        # 30% slower in swamp mud
+    Mountain: 1.0'f32,   # Impassable mountain terrain (speed irrelevant)
     RampUpN: 1.0'f32,    # Ramps already have special handling
     RampUpS: 1.0'f32,
     RampUpW: 1.0'f32,
@@ -167,14 +169,15 @@ const
   RampTerrain* = {RampUpN, RampUpS, RampUpW, RampUpE,
                    RampDownN, RampDownS, RampDownW, RampDownE}
   WaterTerrain* = {Water, ShallowWater}
-  BuildableTerrain* = {Empty, Grass, Sand, Snow, Mud, Dune, Road,
+  DustyTerrain* = {Sand, Dune, Snow, Mud, Grass, Fertile, Road}  ## Terrain that kicks up dust when walked on
+  BuildableTerrain* = {Empty, Grass, Sand, Snow, Mud, Dune, Road, Fertile,
                         RampUpN, RampUpS, RampUpW, RampUpE,
                         RampDownN, RampDownS, RampDownW, RampDownE}
   # BuildableTerrain excluding roads and ramps - for AI build location selection
-  PlaceableBuildTerrain* = {Empty, Grass, Sand, Snow, Mud, Dune}
+  PlaceableBuildTerrain* = {Empty, Grass, Sand, Snow, Mud, Dune, Fertile}
 
 template isBlockedTerrain*(terrain: TerrainType): bool =
-  terrain == Water
+  terrain == Water or terrain == Mountain
 
 template isWaterTerrain*(terrain: TerrainType): bool =
   ## Check if terrain is water (deep or shallow)
@@ -768,8 +771,9 @@ proc placeWaterPath(
     mapWidth, mapHeight: int,
     inCorner: proc(x, y: int): bool
 ) =
-  let deepRadius = max(1, radius - 1)
-  let deepRadius2 = deepRadius * deepRadius
+  let radius2 = radius * radius
+  # Keep rivers mostly non-walkable deep water, with only a thin shallow fringe.
+  let deepRadius2 = max(1, (radius2 * 4) div 5)
   for pos in path:
     for dx in -radius .. radius:
       for dy in -radius .. radius:
@@ -780,6 +784,8 @@ proc placeWaterPath(
         if inCorner(waterPos.x, waterPos.y):
           continue
         let dist2 = dx * dx + dy * dy
+        if dist2 > radius2:
+          continue
         if dist2 <= deepRadius2:
           terrain[waterPos.x][waterPos.y] = Water
         else:
@@ -1288,6 +1294,203 @@ proc generateRiver*(terrain: var TerrainGrid, mapWidth, mapHeight, mapBorder: in
                forkUpIdx, forkDownIdx, mapWidth, mapHeight, mapBorder, inCorner, r)
   generateRoadGrid(terrain, riverPath, riverYByX, mapWidth, mapHeight, mapBorder, inCorner, r)
 
+const
+  ## Mountain chokepoint generation parameters.
+  MountainMinSegmentLen* = 12    ## Minimum boundary segment length to consider
+  MountainRidgeThickness* = 2   ## Extra tiles on each side of boundary
+  MountainPassWidth* = 3        ## Tile width of passes through ridges
+  MountainChance* = 0.40        ## Probability of mountainizing a boundary segment
+  MountainMinChokepoints* = 2   ## Minimum mountain chokepoints per map
+  ## Biome pairs that qualify for mountain ridges.
+  ## Includes BiomeBaseType boundaries since biome zones are islands
+  ## surrounded by base biome — these are the most common boundaries.
+  MountainBiomePairs = [
+    (BiomeBaseType, BiomeSnowType),
+    (BiomeBaseType, BiomeCavesType),
+    (BiomeBaseType, BiomeDesertType),
+    (BiomeBaseType, BiomeSwampType),
+    (BiomeSnowType, BiomeForestType),
+    (BiomeSnowType, BiomePlainsType),
+    (BiomeSnowType, BiomeCavesType),
+    (BiomeDesertType, BiomePlainsType),
+    (BiomeDesertType, BiomeForestType),
+    (BiomeCavesType, BiomeForestType),
+    (BiomeCavesType, BiomePlainsType),
+    (BiomeSwampType, BiomeForestType),
+    (BiomeSwampType, BiomePlainsType),
+  ]
+
+proc isQualifyingBiomePair(a, b: BiomeType): bool =
+  for pair in MountainBiomePairs:
+    if (a == pair[0] and b == pair[1]) or (a == pair[1] and b == pair[0]):
+      return true
+  false
+
+proc applyMountainChokepoints*(terrain: var TerrainGrid, biomes: BiomeGrid,
+                               mapWidth, mapHeight, mapBorder: int,
+                               r: var Rand) =
+  ## Place mountain ridges along qualifying biome boundaries to create chokepoints.
+  ## Each ridge has 1-2 passes for unit passage. Connectivity is ensured by
+  ## makeConnected() which runs later.
+
+  # Step 1: Find boundary tiles between qualifying biome pairs.
+  let reserve = max(8, min(mapWidth, mapHeight) div 10)
+  var boundaryMask: MaskGrid
+  boundaryMask.clearMask(mapWidth, mapHeight)
+
+  for x in mapBorder ..< mapWidth - mapBorder:
+    for y in mapBorder ..< mapHeight - mapBorder:
+      # Skip corner areas reserved for villages.
+      if isInCorner(x, y, mapBorder, reserve, mapWidth, mapHeight):
+        continue
+      let biome = biomes[x][y]
+      if biome == BiomeNone:
+        continue
+      # Check 4-connected neighbors for different qualifying biome.
+      for d in [ivec2(0, -1), ivec2(1, 0), ivec2(0, 1), ivec2(-1, 0)]:
+        let nx = x + d.x.int
+        let ny = y + d.y.int
+        if nx < mapBorder or nx >= mapWidth - mapBorder or
+           ny < mapBorder or ny >= mapHeight - mapBorder:
+          continue
+        let neighborBiome = biomes[nx][ny]
+        if neighborBiome != biome and isQualifyingBiomePair(biome, neighborBiome):
+          boundaryMask[x][y] = true
+          break
+
+  # Step 2: Label connected components of boundary tiles.
+  var labels: array[MaxTerrainSize, array[MaxTerrainSize, int16]]
+  for x in 0 ..< mapWidth:
+    for y in 0 ..< mapHeight:
+      labels[x][y] = 0
+
+  var segmentCount = 0
+  var segmentSizes: seq[int] = @[]
+  var segmentCenters: seq[IVec2] = @[]
+
+  for x in mapBorder ..< mapWidth - mapBorder:
+    for y in mapBorder ..< mapHeight - mapBorder:
+      if not boundaryMask[x][y] or labels[x][y] != 0:
+        continue
+      inc segmentCount
+      var queue: seq[IVec2] = @[ivec2(x.int32, y.int32)]
+      var head = 0
+      labels[x][y] = segmentCount.int16
+      var count = 0
+      var sumX = 0
+      var sumY = 0
+      while head < queue.len:
+        let pos = queue[head]
+        inc head
+        inc count
+        sumX += pos.x.int
+        sumY += pos.y.int
+        for d in [ivec2(0, -1), ivec2(1, 0), ivec2(0, 1), ivec2(-1, 0),
+                  ivec2(1, -1), ivec2(1, 1), ivec2(-1, 1), ivec2(-1, -1)]:
+          let nx = pos.x + d.x
+          let ny = pos.y + d.y
+          if nx < mapBorder.int32 or nx >= (mapWidth - mapBorder).int32 or
+             ny < mapBorder.int32 or ny >= (mapHeight - mapBorder).int32:
+            continue
+          if boundaryMask[nx][ny] and labels[nx][ny] == 0:
+            labels[nx][ny] = segmentCount.int16
+            queue.add(ivec2(nx, ny))
+      segmentSizes.add(count)
+      if count > 0:
+        segmentCenters.add(ivec2((sumX div count).int32, (sumY div count).int32))
+      else:
+        segmentCenters.add(ivec2(0, 0))
+
+  # Step 3: Select segments to mountainize.
+  var selectedSegments: seq[int] = @[]
+  for i in 0 ..< segmentCount:
+    if segmentSizes[i] >= MountainMinSegmentLen and randChance(r, MountainChance):
+      selectedSegments.add(i + 1)  # Labels are 1-indexed
+
+  # Ensure minimum chokepoint count by forcibly selecting largest unselected segments.
+  if selectedSegments.len < MountainMinChokepoints:
+    var candidates: seq[tuple[size: int, label: int]] = @[]
+    for i in 0 ..< segmentCount:
+      let label = i + 1
+      if segmentSizes[i] >= MountainMinSegmentLen and label notin selectedSegments:
+        candidates.add((size: segmentSizes[i], label: label))
+    # Sort by size descending.
+    for i in 0 ..< candidates.len:
+      for j in i + 1 ..< candidates.len:
+        if candidates[j].size > candidates[i].size:
+          swap(candidates[i], candidates[j])
+    for c in candidates:
+      if selectedSegments.len >= MountainMinChokepoints:
+        break
+      selectedSegments.add(c.label)
+
+  if selectedSegments.len == 0:
+    return
+
+  # Step 4: Apply Mountain terrain to selected boundary segments with thickening.
+  # Build a mountain mask by expanding boundary tiles outward.
+  var mountainMask: MaskGrid
+  mountainMask.clearMask(mapWidth, mapHeight)
+
+  for label in selectedSegments:
+    for x in mapBorder ..< mapWidth - mapBorder:
+      for y in mapBorder ..< mapHeight - mapBorder:
+        if labels[x][y] != label.int16:
+          continue
+        # Mark this tile and surrounding tiles for mountain.
+        for dx in -MountainRidgeThickness .. MountainRidgeThickness:
+          for dy in -MountainRidgeThickness .. MountainRidgeThickness:
+            let mx = x + dx
+            let my = y + dy
+            if mx < mapBorder or mx >= mapWidth - mapBorder or
+               my < mapBorder or my >= mapHeight - mapBorder:
+              continue
+            if isInCorner(mx, my, mapBorder, reserve, mapWidth, mapHeight):
+              continue
+            # Don't overwrite water or bridge terrain.
+            if terrain[mx][my] in {Water, ShallowWater, Bridge, Road}:
+              continue
+            mountainMask[mx][my] = true
+
+  # Step 5: Cut passes through each mountain segment.
+  # For each selected segment, find a pass location near the center and clear it.
+  for idx, label in selectedSegments:
+    let center = segmentCenters[label - 1]
+    let passCount = randIntInclusive(r, 1, 2)
+
+    for passIdx in 0 ..< passCount:
+      # Find pass location: offset from center along the segment.
+      var passCenter = center
+      if passCount > 1:
+        # Spread passes apart by shifting along the boundary.
+        let offsetFraction = if passIdx == 0: 0.33 else: 0.67
+        # Find a tile in the segment near this fraction of the segment extent.
+        var segmentTiles: seq[IVec2] = @[]
+        for x in mapBorder ..< mapWidth - mapBorder:
+          for y in mapBorder ..< mapHeight - mapBorder:
+            if labels[x][y] == label.int16:
+              segmentTiles.add(ivec2(x.int32, y.int32))
+        if segmentTiles.len > 0:
+          let targetIdx = int(offsetFraction * segmentTiles.len.float)
+          passCenter = segmentTiles[min(targetIdx, segmentTiles.len - 1)]
+
+      # Clear a circular pass of MountainPassWidth radius around the pass center.
+      let passRadius = MountainPassWidth
+      for dx in -passRadius .. passRadius:
+        for dy in -passRadius .. passRadius:
+          if dx * dx + dy * dy > passRadius * passRadius:
+            continue
+          let px = passCenter.x.int + dx
+          let py = passCenter.y.int + dy
+          if px >= 0 and px < mapWidth and py >= 0 and py < mapHeight:
+            mountainMask[px][py] = false
+
+  # Step 6: Apply the mountain mask to terrain.
+  for x in mapBorder ..< mapWidth - mapBorder:
+    for y in mapBorder ..< mapHeight - mapBorder:
+      if mountainMask[x][y]:
+        terrain[x][y] = Mountain
+
 proc initTerrain*(terrain: var TerrainGrid, biomes: var BiomeGrid,
                   mapWidth, mapHeight, mapBorder: int, seed: int = 2024) =
   ## Initialize base terrain and biomes (no water features).
@@ -1311,6 +1514,8 @@ proc initTerrain*(terrain: var TerrainGrid, biomes: var BiomeGrid,
     applyBaseBiome(terrain, mapWidth, mapHeight, mapBorder, rng)
   if UseBiomeZones:
     applyBiomeZones(terrain, biomes, mapWidth, mapHeight, mapBorder, rng)
+  # Apply mountain chokepoints along biome boundaries.
+  applyMountainChokepoints(terrain, biomes, mapWidth, mapHeight, mapBorder, rng)
 
 proc getStructureElements*(structure: Structure, topLeft: IVec2): tuple[
     walls: seq[IVec2],

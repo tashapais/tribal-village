@@ -109,7 +109,7 @@ proc snapshotDiff(a, b: GameStateSnapshot): string =
   else:
     diffs.join(", ")
 
-proc computeAllActions(controller: Controller, env: Environment): array[MapAgents, uint8] =
+proc computeAllActions(controller: Controller, env: Environment): array[MapAgents, uint16] =
   ## Compute actions for all agents using the given controller
   for i in 0 ..< env.agents.len:
     result[i] = controller.decideAction(env, i)
@@ -125,7 +125,7 @@ suite "RNG Determinism: NOOP Actions":
       # Reference run
       let refEnv = newEnvironment(config, seed)
       var refSnapshots: seq[GameStateSnapshot]
-      var noopActions: array[MapAgents, uint8]
+      var noopActions: array[MapAgents, uint16]
 
       for step in 1 .. StepsPerRun:
         refEnv.step(addr noopActions)
@@ -158,7 +158,7 @@ suite "RNG Determinism: NOOP Actions":
     config.victoryCondition = VictoryNone
 
     var finalSnapshots: seq[(int, GameStateSnapshot)]
-    var noopActions: array[MapAgents, uint8]
+    var noopActions: array[MapAgents, uint16]
 
     for seed in TestSeeds:
       let env = newEnvironment(config, seed)
@@ -192,7 +192,7 @@ suite "RNG Determinism: AI Controller":
       var refSnapshots: seq[GameStateSnapshot]
 
       for step in 1 .. StepsPerRun:
-        var actions: array[MapAgents, uint8]
+        var actions: array[MapAgents, uint16]
         actions = computeAllActions(refController, refEnv)
         refEnv.step(addr actions)
         if refEnv.shouldReset:
@@ -207,7 +207,7 @@ suite "RNG Determinism: AI Controller":
         var snapIdx = 0
 
         for step in 1 .. StepsPerRun:
-          var actions: array[MapAgents, uint8]
+          var actions: array[MapAgents, uint16]
           actions = computeAllActions(controller, env)
           env.step(addr actions)
           if env.shouldReset:
@@ -234,7 +234,7 @@ suite "RNG Determinism: AI Controller":
       let controller = newTestController(seed)
 
       for step in 1 .. StepsPerRun:
-        var actions: array[MapAgents, uint8]
+        var actions: array[MapAgents, uint16]
         actions = computeAllActions(controller, env)
         env.step(addr actions)
         if env.shouldReset:
@@ -267,7 +267,7 @@ suite "RNG Determinism: Independent Environment and Controller Seeds":
       let controller = newTestController(ctrlSeed)
 
       for step in 1 .. StepsPerRun:
-        var actions: array[MapAgents, uint8]
+        var actions: array[MapAgents, uint16]
         actions = computeAllActions(controller, env)
         env.step(addr actions)
         if env.shouldReset:
@@ -299,7 +299,7 @@ suite "RNG Determinism: Independent Environment and Controller Seeds":
       let controller = newTestController(controllerSeed)
 
       for step in 1 .. StepsPerRun:
-        var actions: array[MapAgents, uint8]
+        var actions: array[MapAgents, uint16]
         actions = computeAllActions(controller, env)
         env.step(addr actions)
         if env.shouldReset:
@@ -326,10 +326,10 @@ suite "RNG Determinism: Replay Seed Reproducibility":
       # Initial run: record all actions taken
       let env1 = newEnvironment(config, seed)
       let controller = newTestController(seed)
-      var recordedActions: seq[array[MapAgents, uint8]]
+      var recordedActions: seq[array[MapAgents, uint16]]
 
       for step in 1 .. StepsPerRun:
-        var actions: array[MapAgents, uint8]
+        var actions: array[MapAgents, uint16]
         actions = computeAllActions(controller, env1)
         recordedActions.add(actions)
         env1.step(addr actions)

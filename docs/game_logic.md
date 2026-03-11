@@ -2,7 +2,7 @@
 
 Date: 2026-01-28
 Owner: Docs / Systems
-Status: Draft
+Status: Active
 
 ## Purpose
 This document describes how the Tribal Village simulation behaves each step, what agents can do,
@@ -60,7 +60,7 @@ Order of operations (high level):
 - Corpses and skeletons can store loot and be harvested.
 
 ## Actions
-Action space is discrete: `verb * 25 + argument`.
+Action space is discrete: `verb * 28 + argument` (11 verbs x 28 arguments = 308 total actions).
 
 Verbs:
 - **noop**: do nothing.

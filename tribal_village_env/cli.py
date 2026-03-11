@@ -3,13 +3,13 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Annotated
 
 import typer
 from rich.console import Console
 
 from tribal_village_env.build import ensure_nim_library_current
-from tribal_village_env.constants import DEFAULT_ANSI_STEPS, DEFAULT_PROFILE_STEPS
+from tribal_village_env.config import DEFAULT_ANSI_STEPS, DEFAULT_PROFILE_STEPS
 from tribal_village_env.environment import TribalVillageEnv
 
 # Optional CoGames training integration
@@ -38,6 +38,25 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+# ---------------------------------------------------------------------------
+# Shared option type aliases (defined once, used by both play and root)
+# ---------------------------------------------------------------------------
+Render = Annotated[str, typer.Option("--render", "-r", help="Render mode: gui (default) or ansi (text-only)")]
+Steps = Annotated[int, typer.Option("--steps", "-s", help="Steps to run when using ANSI render", min=1)]
+MaxSteps = Annotated[int | None, typer.Option("--max-steps", help="Override max steps in ANSI mode", min=1)]
+RandomActions = Annotated[bool, typer.Option("--random-actions/--no-random-actions", help="Use random actions in ANSI mode (otherwise no-op)")]
+Profile = Annotated[bool, typer.Option("--profile", help="Enable Nim profiler (GUI mode only; runs headless steps then exits)")]
+ProfileSteps = Annotated[int, typer.Option("--profile-steps", help="Steps to run when profiling", min=1)]
+StepTiming = Annotated[bool, typer.Option("--step-timing", help="Enable per-step timing logs (GUI mode only)")]
+StepTimingTarget = Annotated[int, typer.Option("--step-timing-target", help="Step index at which to start timing logs", min=0)]
+StepTimingWindow = Annotated[int, typer.Option("--step-timing-window", help="Number of steps to log starting at target", min=0)]
+RenderTiming = Annotated[bool, typer.Option("--render-timing", help="Enable per-frame render timing logs (GUI mode only)")]
+RenderTimingTarget = Annotated[int, typer.Option("--render-timing-target", help="Frame index at which to start render timing logs", min=0)]
+RenderTimingWindow = Annotated[int, typer.Option("--render-timing-window", help="Number of frames to log starting at target", min=0)]
+RenderTimingEvery = Annotated[int, typer.Option("--render-timing-every", help="Log every N frames within the timing window", min=1)]
+RenderTimingExit = Annotated[int | None, typer.Option("--render-timing-exit", help="Exit after this frame index (GUI mode only)", min=1)]
+
+
 def _run_gui(
     profile: bool,
     profile_steps: int,
@@ -48,7 +67,7 @@ def _run_gui(
     render_timing_target: int,
     render_timing_window: int,
     render_timing_every: int,
-    render_timing_exit: Optional[int],
+    render_timing_exit: int | None,
 ) -> None:
     project_root = _project_root()
     cmd = ["nim", "r", "-d:release"]
@@ -77,7 +96,7 @@ def _run_gui(
     subprocess.run(cmd, cwd=project_root, check=True, env=env)
 
 
-def _run_ansi(steps: int, max_steps: Optional[int], random_actions: bool) -> None:
+def _run_ansi(steps: int, max_steps: int | None, random_actions: bool) -> None:
     config: dict[str, object] = {"render_mode": "ansi"}
     if max_steps is not None:
         config["max_steps"] = max_steps
@@ -106,101 +125,22 @@ def _run_ansi(steps: int, max_steps: Optional[int], random_actions: bool) -> Non
         env.close()
 
 
-def _options():
-    return {
-        "render": typer.Option(
-            "gui",
-            "--render",
-            "-r",
-            help="Render mode: gui (default) or ansi (text-only)",
-        ),
-        "steps": typer.Option(
-            DEFAULT_ANSI_STEPS, "--steps", "-s", help="Steps to run when using ANSI render", min=1
-        ),
-        "max_steps": typer.Option(
-            None, "--max-steps", help="Override max steps in ANSI mode", min=1
-        ),
-        "random_actions": typer.Option(
-            True,
-            "--random-actions/--no-random-actions",
-            help="Use random actions in ANSI mode (otherwise no-op)",
-        ),
-        "profile": typer.Option(
-            False,
-            "--profile",
-            help="Enable Nim profiler (GUI mode only; runs headless steps then exits)",
-        ),
-        "profile_steps": typer.Option(
-            DEFAULT_PROFILE_STEPS,
-            "--profile-steps",
-            help="Steps to run when profiling",
-            min=1,
-        ),
-        "step_timing": typer.Option(
-            False,
-            "--step-timing",
-            help="Enable per-step timing logs (GUI mode only)",
-        ),
-        "step_timing_target": typer.Option(
-            0,
-            "--step-timing-target",
-            help="Step index at which to start timing logs",
-            min=0,
-        ),
-        "step_timing_window": typer.Option(
-            0,
-            "--step-timing-window",
-            help="Number of steps to log starting at target",
-            min=0,
-        ),
-        "render_timing": typer.Option(
-            False,
-            "--render-timing",
-            help="Enable per-frame render timing logs (GUI mode only)",
-        ),
-        "render_timing_target": typer.Option(
-            0,
-            "--render-timing-target",
-            help="Frame index at which to start render timing logs",
-            min=0,
-        ),
-        "render_timing_window": typer.Option(
-            0,
-            "--render-timing-window",
-            help="Number of frames to log starting at target",
-            min=0,
-        ),
-        "render_timing_every": typer.Option(
-            1,
-            "--render-timing-every",
-            help="Log every N frames within the timing window",
-            min=1,
-        ),
-        "render_timing_exit": typer.Option(
-            None,
-            "--render-timing-exit",
-            help="Exit after this frame index (GUI mode only)",
-            min=1,
-        ),
-    }
-
-
 @app.command("play", help="Play Tribal Village using the Nim GUI or ANSI renderer")
 def play(
-    render: str = _options()["render"],
-    steps: int = _options()["steps"],
-    max_steps: Optional[int] = _options()["max_steps"],
-    random_actions: bool = _options()["random_actions"],
-    profile: bool = _options()["profile"],
-    profile_steps: int = _options()["profile_steps"],
-    step_timing: bool = _options()["step_timing"],
-    step_timing_target: int = _options()["step_timing_target"],
-    step_timing_window: int = _options()["step_timing_window"],
-    render_timing: bool = _options()["render_timing"],
-    render_timing_target: int = _options()["render_timing_target"],
-    render_timing_window: int = _options()["render_timing_window"],
-    render_timing_every: int = _options()["render_timing_every"],
-    render_timing_exit: Optional[int] = _options()["render_timing_exit"],
+    render: Render = "gui",
+    steps: Steps = DEFAULT_ANSI_STEPS,
+    max_steps: MaxSteps = None,
+    random_actions: RandomActions = True,
+    profile: Profile = False,
+    profile_steps: ProfileSteps = DEFAULT_PROFILE_STEPS,
+    step_timing: StepTiming = False,
+    step_timing_target: StepTimingTarget = 0,
+    step_timing_window: StepTimingWindow = 0,
+    render_timing: RenderTiming = False,
+    render_timing_target: RenderTimingTarget = 0,
+    render_timing_window: RenderTimingWindow = 0,
+    render_timing_every: RenderTimingEvery = 1,
+    render_timing_exit: RenderTimingExit = None,
 ) -> None:
     ensure_nim_library_current()
 
@@ -229,20 +169,20 @@ def play(
 @app.callback(invoke_without_command=True)
 def root(
     ctx: typer.Context,
-    render: str = _options()["render"],
-    steps: int = _options()["steps"],
-    max_steps: Optional[int] = _options()["max_steps"],
-    random_actions: bool = _options()["random_actions"],
-    profile: bool = _options()["profile"],
-    profile_steps: int = _options()["profile_steps"],
-    step_timing: bool = _options()["step_timing"],
-    step_timing_target: int = _options()["step_timing_target"],
-    step_timing_window: int = _options()["step_timing_window"],
-    render_timing: bool = _options()["render_timing"],
-    render_timing_target: int = _options()["render_timing_target"],
-    render_timing_window: int = _options()["render_timing_window"],
-    render_timing_every: int = _options()["render_timing_every"],
-    render_timing_exit: Optional[int] = _options()["render_timing_exit"],
+    render: Render = "gui",
+    steps: Steps = DEFAULT_ANSI_STEPS,
+    max_steps: MaxSteps = None,
+    random_actions: RandomActions = True,
+    profile: Profile = False,
+    profile_steps: ProfileSteps = DEFAULT_PROFILE_STEPS,
+    step_timing: StepTiming = False,
+    step_timing_target: StepTimingTarget = 0,
+    step_timing_window: StepTimingWindow = 0,
+    render_timing: RenderTiming = False,
+    render_timing_target: RenderTimingTarget = 0,
+    render_timing_window: RenderTimingWindow = 0,
+    render_timing_every: RenderTimingEvery = 1,
+    render_timing_exit: RenderTimingExit = None,
 ) -> None:
     """Default to play when no subcommand is provided."""
     if ctx.invoked_subcommand is None:

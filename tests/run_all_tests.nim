@@ -3,10 +3,12 @@
 ## Run with: nim r --path:src tests/run_all_tests.nim
 
 # Union of all imports needed by included test files
-import std/[unittest, os, json, strutils, strformat, sets, times, monotimes]
+import std/[unittest, os, json, strutils, strformat, sets, times, monotimes, math]
 import test_common
 import balance_scorecard
 import terrain
+import renderer_core
+import colors
 
 # Include test suites — each has unique constant names to avoid conflicts.
 # Suite blocks run at include time via unittest.
@@ -14,3 +16,5 @@ include "test_balance_scorecard"
 include "test_map_determinism"
 include "test_score_tracking"
 include "test_observations"
+include "test_colors"
+include "test_renderer"

@@ -9,7 +9,7 @@ import ctypes
 import numpy as np
 import pytest
 
-from tribal_village_env.constants import (
+from tribal_village_env.config import (
     DEFAULT_MAX_STEPS,
     DEFAULT_RENDER_SCALE,
     OBS_MAX_VALUE,
@@ -414,7 +414,6 @@ class TestEndToEndScenarios:
         env1.close()
         env2.close()
 
-    @pytest.mark.skip(reason="Seed not yet wired through FFI to Nim environment")
     def test_deterministic_with_same_seed(self):
         """Same seed should produce same initial state."""
         env1 = TribalVillageEnv()

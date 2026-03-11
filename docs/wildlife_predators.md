@@ -2,7 +2,7 @@
 
 Date: 2026-01-19
 Owner: Design / Systems
-Status: Draft
+Status: Active
 
 ## Entities
 Neutral wildlife lives in the main simulation loop as `ThingKind` values:
@@ -64,5 +64,4 @@ Scripted AI exposes predator cleanup behaviors:
 ## Observation and Rendering
 - Observation layers include `ThingCowLayer`, `ThingBearLayer`, and `ThingWolfLayer`.
 - FFI tint colors for cows/bears/wolves are defined in `src/ffi.nim`.
-- Renderer note: the current sprite binding for bears/wolves in `src/renderer.nim`
-  still uses cow art as a placeholder. Swap to dedicated assets when available.
+- Dedicated sprites exist for all three wildlife types in `data/oriented/` (bear, wolf, cow).

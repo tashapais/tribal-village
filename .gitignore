@@ -13,15 +13,7 @@ uv.lock
 # Nim compilation artifacts
 *.out
 *.exe
-src/tribal/tribal
-
-# Nim compiled binaries (executables without extension)
-src/tribal/environment
-src/tribal/renderer
-scripts/build_atlas
-src/tribal/clippy
-src/tribal/placement
-src/tribal/terrain
+src/ffi
 
 # Test executables (all compiled test binaries)
 tests/test_*
@@ -51,9 +43,6 @@ src/**/nimcache/
 actions.tmp
 tribal_replay_*.tribal
 
-# Example outputs that shouldn't be committed
-examples/tribal_replay_*.tribal
-examples/*.tmp
 train_dir/
 experiments/
 
@@ -99,13 +88,13 @@ nim.cfg
 
 .DS_Store
 
-# Gas Town (added by gt)
-.runtime/
-.claude/
-.logs/
-src/ffi
-scripts/run_all_tests
+# Compiled script binaries
+scripts/build_atlas
+scripts/benchmark_steps
+scripts/audit_*
+scripts/profile_*
 scripts/perf_baseline
+scripts/run_all_tests
 scripts/coverage_report
 
 # Nimby-installed dependency packages (local to worktree)
@@ -125,18 +114,12 @@ windy/
 ws/
 zippy/
 
-# Gas Town (added by gt)
-# .beads/ - removed: inner .beads/.gitignore handles selective tracking
-scorecards/
-
-# Gas Town (added by gt)
+# Gas Town
+.runtime/
+.claude/
+.logs/
 .beads/
-
-# Compiled script binaries
-scripts/benchmark_steps
-scripts/audit_*
-scripts/profile_*
-scripts/build_atlas
+scorecards/
 
 # Session artifacts
 CLAUDE.md

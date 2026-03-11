@@ -12,7 +12,7 @@ The spatial index is heavily utilized with ~10M queries per 1000 steps. Three qu
 ## Methodology
 
 ```bash
-TV_SPATIAL_STATS_INTERVAL=100 TV_PROFILE_STEPS=1000 nim r -d:release -d:spatialStats --path:src scripts/profile_ai.nim
+TV_SPATIAL_STATS_INTERVAL=100 TV_PROFILE_STEPS=1000 nim r -d:release -d:spatialStats --path:src scripts/benchmark_steps.nim
 ```
 
 ## Raw Data (Steps 401-500, Steady State)

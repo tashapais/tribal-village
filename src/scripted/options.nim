@@ -12,7 +12,7 @@ import ../entropy
 
 proc actOrMove*(controller: Controller, env: Environment, agent: Thing,
                agentId: int, state: var AgentState,
-               targetPos: IVec2, verb: uint8): uint8 =
+               targetPos: IVec2, verb: uint16): uint16 =
   if isAdjacent(agent.pos, targetPos):
     return controller.actAt(env, agent, agentId, state, targetPos, verb)
   controller.moveTo(env, agent, agentId, state, targetPos)
@@ -45,7 +45,7 @@ proc shouldTerminateStoreValuables*(controller: Controller, env: Environment, ag
   not canStartStoreValuables(controller, env, agent, agentId, state)
 
 proc optStoreValuables*(controller: Controller, env: Environment, agent: Thing,
-                        agentId: int, state: var AgentState): uint8 =
+                        agentId: int, state: var AgentState): uint16 =
   let teamId = getTeamId(agent)
   var target: Thing = nil
   if agentHasAnyItem(agent, buildingStorageItems(Blacksmith)):
@@ -55,8 +55,8 @@ proc optStoreValuables*(controller: Controller, env: Environment, agent: Thing,
   if isNil(target) and agentHasAnyItem(agent, buildingStorageItems(Barrel)):
     target = env.findNearestFriendlyThingSpiral(state, teamId, Barrel)
   if isNil(target):
-    return 0'u8
-  return actOrMove(controller, env, agent, agentId, state, target.pos, 3'u8)
+    return 0'u16
+  return actOrMove(controller, env, agent, agentId, state, target.pos, 3'u16)
 
 proc canStartCraftBread*(controller: Controller, env: Environment, agent: Thing,
                          agentId: int, state: var AgentState): bool =
@@ -70,12 +70,12 @@ proc shouldTerminateCraftBread*(controller: Controller, env: Environment, agent:
   agent.inventoryWheat == 0 or agent.inventoryBread >= MapObjectAgentMaxInventory
 
 proc optCraftBread*(controller: Controller, env: Environment, agent: Thing,
-                    agentId: int, state: var AgentState): uint8 =
+                    agentId: int, state: var AgentState): uint16 =
   let teamId = getTeamId(agent)
   let oven = env.findNearestFriendlyThingSpiral(state, teamId, ClayOven)
   if isNil(oven) or oven.cooldown != 0:
-    return 0'u8
-  return actOrMove(controller, env, agent, agentId, state, oven.pos, 3'u8)
+    return 0'u16
+  return actOrMove(controller, env, agent, agentId, state, oven.pos, 3'u16)
 
 proc canStartSmeltGold*(controller: Controller, env: Environment, agent: Thing,
                         agentId: int, state: var AgentState): bool =
@@ -88,17 +88,17 @@ proc shouldTerminateSmeltGold*(controller: Controller, env: Environment, agent: 
   agent.inventoryGold == 0 or agent.inventoryBar >= MapObjectAgentMaxInventory
 
 proc optSmeltGold*(controller: Controller, env: Environment, agent: Thing,
-                   agentId: int, state: var AgentState): uint8 =
+                   agentId: int, state: var AgentState): uint16 =
   state.basePosition = agent.getBasePos()
   let (didKnown, actKnown) = controller.tryMoveToKnownResource(
-    env, agent, agentId, state, state.closestMagmaPos, {Magma}, 3'u8)
+    env, agent, agentId, state, state.closestMagmaPos, {Magma}, 3'u16)
   if didKnown:
     return actKnown
   let magmaGlobal = findNearestThing(env, agent.pos, Magma, maxDist = int.high)
   if isNil(magmaGlobal):
-    return 0'u8
+    return 0'u16
   updateClosestSeen(state, state.basePosition, magmaGlobal.pos, state.closestMagmaPos)
-  return actOrMove(controller, env, agent, agentId, state, magmaGlobal.pos, 3'u8)
+  return actOrMove(controller, env, agent, agentId, state, magmaGlobal.pos, 3'u16)
 
 # Shared OptionDef constants for behaviors used across multiple roles
 # These can be directly included in role option arrays to reduce duplication
@@ -137,7 +137,7 @@ proc shouldTerminateEmergencyHeal*(controller: Controller, env: Environment, age
   agent.inventoryBread == 0 or agent.hp * 2 >= agent.maxHp
 
 proc optEmergencyHeal*(controller: Controller, env: Environment, agent: Thing,
-                       agentId: int, state: var AgentState): uint8 =
+                       agentId: int, state: var AgentState): uint16 =
   # Find a valid adjacent position to use bread (eating uses the Use action)
   for d in AdjacentOffsets8:
     let target = agent.pos + d
@@ -147,8 +147,8 @@ proc optEmergencyHeal*(controller: Controller, env: Environment, agent: Thing,
         not isBlockedTerrain(env.terrain[target.x][target.y]) and
         env.canAgentPassDoor(agent, target):
       let dirIdx = neighborDirIndex(agent.pos, target)
-      return encodeAction(3'u8, dirIdx.uint8)
-  return 0'u8
+      return encodeAction(3'u16, dirIdx.uint8)
+  return 0'u16
 
 let EmergencyHealOption* = OptionDef(
   name: "EmergencyHeal",
@@ -274,7 +274,7 @@ proc findNearbyEnemyForFlee*(env: Environment, agent: Thing, radius: int): Thing
   findNearestEnemyAgentSpatial(env, agent.pos, teamId, radius)
 
 proc fleeToBase*(controller: Controller, env: Environment, agent: Thing,
-                 agentId: int, state: var AgentState): uint8 =
+                 agentId: int, state: var AgentState): uint16 =
   ## Shared flee behavior - move toward home altar for safety.
   ## Used by gatherer and builder flee behaviors.
   let basePos = agent.getBasePos()
@@ -282,7 +282,7 @@ proc fleeToBase*(controller: Controller, env: Environment, agent: Thing,
   controller.moveTo(env, agent, agentId, state, basePos)
 
 proc fleeAwayFrom*(controller: Controller, env: Environment, agent: Thing,
-                   agentId: int, state: var AgentState, threatPos: IVec2): uint8 =
+                   agentId: int, state: var AgentState, threatPos: IVec2): uint16 =
   ## Flee away from a threat position, trying to maximize distance while
   ## moving toward the agent's base for safety.
   ## Returns the best movement action or NOOP if blocked.
@@ -306,13 +306,13 @@ proc fleeAwayFrom*(controller: Controller, env: Environment, agent: Thing,
       bestDir = dirIdx
 
   if bestDir >= 0:
-    return saveStateAndReturn(controller, agentId, state, encodeAction(1'u8, bestDir.uint8))
+    return saveStateAndReturn(controller, agentId, state, encodeAction(1'u16, bestDir.uint8))
 
   # If can't move, just noop
-  saveStateAndReturn(controller, agentId, state, 0'u8)
+  saveStateAndReturn(controller, agentId, state, 0'u16)
 
 proc optFallbackSearch*(controller: Controller, env: Environment, agent: Thing,
-                        agentId: int, state: var AgentState): uint8 =
+                        agentId: int, state: var AgentState): uint16 =
   ## Shared fallback search behavior - explore when nothing else to do.
   controller.moveNextSearch(env, agent, agentId, state)
 
@@ -368,14 +368,14 @@ proc shouldTerminateTownBellGarrison(controller: Controller, env: Environment, a
   teamId < 0 or teamId >= MapRoomObjectsTeams or not env.townBellActive[teamId]
 
 proc optTownBellGarrison(controller: Controller, env: Environment, agent: Thing,
-                          agentId: int, state: var AgentState): uint8 =
+                          agentId: int, state: var AgentState): uint16 =
   ## When town bell is active, pathfind to nearest garrisonable building.
   ## Garrison happens automatically via actOrMove when adjacent (ActionUse on building).
   let teamId = getTeamId(agent)
   let building = findNearestGarrisonableBuilding(env, agent.pos, teamId, GarrisonSeekRadius)
   if isNil(building):
-    return 0'u8
-  actOrMove(controller, env, agent, agentId, state, building.pos, 3'u8)
+    return 0'u16
+  actOrMove(controller, env, agent, agentId, state, building.pos, 3'u16)
 
 let TownBellGarrisonOption* = OptionDef(
   name: "TownBellGarrison",
@@ -386,11 +386,11 @@ let TownBellGarrisonOption* = OptionDef(
 )
 
 proc optPlantOnFertile*(controller: Controller, env: Environment, agent: Thing,
-                        agentId: int, state: var AgentState): uint8 =
+                        agentId: int, state: var AgentState): uint16 =
   ## Shared act proc for PlantOnFertile behavior - plants seeds on fertile tiles.
   let (didPlant, actPlant) = controller.tryPlantOnFertile(env, agent, agentId, state)
   if didPlant: return actPlant
-  0'u8
+  0'u16
 
 proc findNearestGoblinStructure*(env: Environment, pos: IVec2): Thing =
   findNearestThingOfKinds(env, pos, [GoblinHive, GoblinHut, GoblinTotem])
@@ -405,13 +405,13 @@ proc shouldTerminateLanternFrontierPush(controller: Controller, env: Environment
   agent.inventoryLantern == 0
 
 proc optLanternFrontierPush(controller: Controller, env: Environment, agent: Thing,
-                            agentId: int, state: var AgentState): uint8 =
+                            agentId: int, state: var AgentState): uint16 =
   let teamId = getTeamId(agent)
   let basePos = agent.getBasePos()
   let target = findLanternFrontierCandidate(env, state, teamId, basePos)
   if target.x < 0:
-    return 0'u8
-  return actOrMove(controller, env, agent, agentId, state, target, 6'u8)
+    return 0'u16
+  return actOrMove(controller, env, agent, agentId, state, target, 6'u16)
 
 proc canStartLanternGapFill(controller: Controller, env: Environment, agent: Thing,
                             agentId: int, state: var AgentState): bool =
@@ -423,7 +423,7 @@ proc shouldTerminateLanternGapFill(controller: Controller, env: Environment, age
   agent.inventoryLantern == 0
 
 proc optLanternGapFill(controller: Controller, env: Environment, agent: Thing,
-                       agentId: int, state: var AgentState): uint8 =
+                       agentId: int, state: var AgentState): uint16 =
   let teamId = getTeamId(agent)
   let agentPos = agent.pos
   let altarPos = agent.homeAltar
@@ -454,8 +454,8 @@ proc optLanternGapFill(controller: Controller, env: Environment, agent: Thing,
             bestDist = dist
             target = cand
   if target.x < 0:
-    return 0'u8
-  return actOrMove(controller, env, agent, agentId, state, target, 6'u8)
+    return 0'u16
+  return actOrMove(controller, env, agent, agentId, state, target, 6'u16)
 
 proc canStartLanternRecovery(controller: Controller, env: Environment, agent: Thing,
                              agentId: int, state: var AgentState): bool =
@@ -467,7 +467,7 @@ proc shouldTerminateLanternRecovery(controller: Controller, env: Environment, ag
   agent.inventoryLantern == 0
 
 proc optLanternRecovery(controller: Controller, env: Environment, agent: Thing,
-                        agentId: int, state: var AgentState): uint8 =
+                        agentId: int, state: var AgentState): uint16 =
   let basePos = agent.getBasePos()
   # Find frozen edge candidate (inlined)
   var target = ivec2(-1, -1)
@@ -484,8 +484,8 @@ proc optLanternRecovery(controller: Controller, env: Environment, agent: Thing,
             target = cand
             break search
   if target.x < 0:
-    return 0'u8
-  return actOrMove(controller, env, agent, agentId, state, target, 6'u8)
+    return 0'u16
+  return actOrMove(controller, env, agent, agentId, state, target, 6'u16)
 
 proc canStartLanternLogistics(controller: Controller, env: Environment, agent: Thing,
                               agentId: int, state: var AgentState): bool =
@@ -497,18 +497,18 @@ proc shouldTerminateLanternLogistics(controller: Controller, env: Environment, a
   agent.inventoryLantern > 0 or agent.unitClass != UnitVillager
 
 proc optLanternLogistics(controller: Controller, env: Environment, agent: Thing,
-                         agentId: int, state: var AgentState): uint8 =
+                         agentId: int, state: var AgentState): uint16 =
   let teamId = getTeamId(agent)
   let loom = env.findNearestFriendlyThingSpiral(state, teamId, WeavingLoom)
   if agent.inventoryWood > 0 or agent.inventoryWheat > 0:
     if not isNil(loom):
-      return actOrMove(controller, env, agent, agentId, state, loom.pos, 3'u8)
+      return actOrMove(controller, env, agent, agentId, state, loom.pos, 3'u16)
   if agent.inventoryWood == 0:
     let (didWood, actWood) = controller.ensureWood(env, agent, agentId, state)
     if didWood: return actWood
   let (didWheat, actWheat) = controller.ensureWheat(env, agent, agentId, state)
   if didWheat: return actWheat
-  0'u8
+  0'u16
 
 proc canStartAntiTumorPatrol(controller: Controller, env: Environment, agent: Thing,
                              agentId: int, state: var AgentState): bool =
@@ -520,11 +520,11 @@ proc shouldTerminateAntiTumorPatrol(controller: Controller, env: Environment, ag
   env.thingsByKind[Tumor].len == 0
 
 proc optAntiTumorPatrol(controller: Controller, env: Environment, agent: Thing,
-                        agentId: int, state: var AgentState): uint8 =
+                        agentId: int, state: var AgentState): uint16 =
   let tumor = env.findNearestThingSpiral(state, Tumor)
   if isNil(tumor):
-    return 0'u8
-  actOrMove(controller, env, agent, agentId, state, tumor.pos, 2'u8)
+    return 0'u16
+  actOrMove(controller, env, agent, agentId, state, tumor.pos, 2'u16)
 
 let AntiTumorPatrolOption* = OptionDef(
   name: "AntiTumorPatrol",
@@ -544,11 +544,11 @@ proc shouldTerminateSpawnerHunter(controller: Controller, env: Environment, agen
   env.thingsByKind[Spawner].len == 0
 
 proc optSpawnerHunter(controller: Controller, env: Environment, agent: Thing,
-                      agentId: int, state: var AgentState): uint8 =
+                      agentId: int, state: var AgentState): uint16 =
   let spawner = env.findNearestThingSpiral(state, Spawner)
   if isNil(spawner):
-    return 0'u8
-  actOrMove(controller, env, agent, agentId, state, spawner.pos, 2'u8)
+    return 0'u16
+  actOrMove(controller, env, agent, agentId, state, spawner.pos, 2'u16)
 
 proc canStartFrozenEdgeBreaker(controller: Controller, env: Environment, agent: Thing,
                                agentId: int, state: var AgentState): bool =
@@ -566,7 +566,7 @@ proc shouldTerminateFrozenEdgeBreaker(controller: Controller, env: Environment, 
   not canStartFrozenEdgeBreaker(controller, env, agent, agentId, state)
 
 proc optFrozenEdgeBreaker(controller: Controller, env: Environment, agent: Thing,
-                          agentId: int, state: var AgentState): uint8 =
+                          agentId: int, state: var AgentState): uint16 =
   var best: Thing = nil
   var bestDist = int.high
   for tumor in env.thingsByKind[Tumor]:
@@ -583,8 +583,8 @@ proc optFrozenEdgeBreaker(controller: Controller, env: Environment, agent: Thing
       bestDist = dist
       best = tumor
   if isNil(best):
-    return 0'u8
-  actOrMove(controller, env, agent, agentId, state, best.pos, 2'u8)
+    return 0'u16
+  actOrMove(controller, env, agent, agentId, state, best.pos, 2'u16)
 
 proc canStartGuardTowerBorder(controller: Controller, env: Environment, agent: Thing,
                               agentId: int, state: var AgentState): bool =
@@ -596,7 +596,7 @@ proc shouldTerminateGuardTowerBorder(controller: Controller, env: Environment, a
   agent.unitClass != UnitVillager or not env.canAffordBuild(agent, thingItem("GuardTower"))
 
 proc optGuardTowerBorder(controller: Controller, env: Environment, agent: Thing,
-                         agentId: int, state: var AgentState): uint8 =
+                         agentId: int, state: var AgentState): uint16 =
   let basePos = agent.getBasePos()
   let enemy = findNearestEnemyBuilding(env, basePos, getTeamId(agent))
   let target = findDirectionalBuildPos(env, basePos,
@@ -605,7 +605,7 @@ proc optGuardTowerBorder(controller: Controller, env: Environment, agent: Thing,
     controller, env, agent, agentId, state, target, buildIndexFor(GuardTower)
   )
   if did: return act
-  0'u8
+  0'u16
 
 proc canStartOutpostNetwork(controller: Controller, env: Environment, agent: Thing,
                             agentId: int, state: var AgentState): bool =
@@ -617,7 +617,7 @@ proc shouldTerminateOutpostNetwork(controller: Controller, env: Environment, age
   agent.unitClass != UnitVillager or not env.canAffordBuild(agent, thingItem("Outpost"))
 
 proc optOutpostNetwork(controller: Controller, env: Environment, agent: Thing,
-                       agentId: int, state: var AgentState): uint8 =
+                       agentId: int, state: var AgentState): uint16 =
   let basePos = agent.getBasePos()
   let enemy = findNearestEnemyBuilding(env, basePos, getTeamId(agent))
   let target = findDirectionalBuildPos(env, basePos,
@@ -626,7 +626,7 @@ proc optOutpostNetwork(controller: Controller, env: Environment, agent: Thing,
     controller, env, agent, agentId, state, target, buildIndexFor(Outpost)
   )
   if did: return act
-  0'u8
+  0'u16
 
 proc canStartEnemyWallFortify(controller: Controller, env: Environment, agent: Thing,
                               agentId: int, state: var AgentState): bool =
@@ -644,17 +644,17 @@ proc shouldTerminateEnemyWallFortify(controller: Controller, env: Environment, a
   not canStartEnemyWallFortify(controller, env, agent, agentId, state)
 
 proc optEnemyWallFortify(controller: Controller, env: Environment, agent: Thing,
-                         agentId: int, state: var AgentState): uint8 =
+                         agentId: int, state: var AgentState): uint16 =
   let basePos = agent.getBasePos()
   let (enemyPos, dist) = findNearestEnemyPresence(env, basePos, getTeamId(agent))
   if enemyPos.x < 0 or dist > EnemyWallFortifyRadius:
-    return 0'u8
+    return 0'u16
   let target = findDirectionalBuildPos(env, basePos, enemyPos, 2, 6)
   let (did, act) = goToAdjacentAndBuild(
     controller, env, agent, agentId, state, target, BuildIndexWall
   )
   if did: return act
-  0'u8
+  0'u16
 
 proc canStartWallChokeFortify(controller: Controller, env: Environment, agent: Thing,
                               agentId: int, state: var AgentState): bool =
@@ -666,7 +666,7 @@ proc shouldTerminateWallChokeFortify(controller: Controller, env: Environment, a
   agent.unitClass != UnitVillager or not env.canAffordBuild(agent, thingItem("Wall"))
 
 proc optWallChokeFortify(controller: Controller, env: Environment, agent: Thing,
-                         agentId: int, state: var AgentState): uint8 =
+                         agentId: int, state: var AgentState): uint16 =
   let basePos = agent.getBasePos()
   # Find wall choke candidate (inlined)
   var target = ivec2(-1, -1)
@@ -703,7 +703,7 @@ proc optWallChokeFortify(controller: Controller, env: Environment, agent: Thing,
     controller, env, agent, agentId, state, target, BuildIndexWall
   )
   if did: return act
-  0'u8
+  0'u16
 
 proc canStartDoorChokeFortify(controller: Controller, env: Environment, agent: Thing,
                               agentId: int, state: var AgentState): bool =
@@ -715,7 +715,7 @@ proc shouldTerminateDoorChokeFortify(controller: Controller, env: Environment, a
   agent.unitClass != UnitVillager or not env.canAffordBuild(agent, thingItem("Door"))
 
 proc optDoorChokeFortify(controller: Controller, env: Environment, agent: Thing,
-                         agentId: int, state: var AgentState): uint8 =
+                         agentId: int, state: var AgentState): uint16 =
   let basePos = agent.getBasePos()
   # Find door choke candidate (inlined)
   var target = ivec2(-1, -1)
@@ -744,7 +744,7 @@ proc optDoorChokeFortify(controller: Controller, env: Environment, agent: Thing,
     controller, env, agent, agentId, state, target, buildIndexFor(Door)
   )
   if did: return act
-  0'u8
+  0'u16
 
 proc canStartRoadExpansion(controller: Controller, env: Environment, agent: Thing,
                            agentId: int, state: var AgentState): bool =
@@ -756,7 +756,7 @@ proc shouldTerminateRoadExpansion(controller: Controller, env: Environment, agen
   agent.unitClass != UnitVillager or not env.canAffordBuild(agent, thingItem("Road"))
 
 proc optRoadExpansion(controller: Controller, env: Environment, agent: Thing,
-                      agentId: int, state: var AgentState): uint8 =
+                      agentId: int, state: var AgentState): uint16 =
   let basePos = agent.getBasePos()
   let enemy = findNearestEnemyBuilding(env, basePos, getTeamId(agent))
   let target = findDirectionalBuildPos(env, basePos,
@@ -765,7 +765,7 @@ proc optRoadExpansion(controller: Controller, env: Environment, agent: Thing,
     controller, env, agent, agentId, state, target, BuildIndexRoad
   )
   if did: return act
-  0'u8
+  0'u16
 
 proc canStartCastleAnchor(controller: Controller, env: Environment, agent: Thing,
                           agentId: int, state: var AgentState): bool =
@@ -777,7 +777,7 @@ proc shouldTerminateCastleAnchor(controller: Controller, env: Environment, agent
   agent.unitClass != UnitVillager or not env.canAffordBuild(agent, thingItem("Castle"))
 
 proc optCastleAnchor(controller: Controller, env: Environment, agent: Thing,
-                     agentId: int, state: var AgentState): uint8 =
+                     agentId: int, state: var AgentState): uint16 =
   let basePos = agent.getBasePos()
   let enemy = findNearestEnemyBuilding(env, basePos, getTeamId(agent))
   let target = findDirectionalBuildPos(env, basePos,
@@ -786,7 +786,7 @@ proc optCastleAnchor(controller: Controller, env: Environment, agent: Thing,
     controller, env, agent, agentId, state, target, buildIndexFor(Castle)
   )
   if did: return act
-  0'u8
+  0'u16
 
 proc canStartSiegeBreacher(controller: Controller, env: Environment, agent: Thing,
                            agentId: int, state: var AgentState): bool =
@@ -801,12 +801,12 @@ proc shouldTerminateSiegeBreacher(controller: Controller, env: Environment, agen
   not canStartSiegeBreacher(controller, env, agent, agentId, state)
 
 proc optSiegeBreacher(controller: Controller, env: Environment, agent: Thing,
-                      agentId: int, state: var AgentState): uint8 =
+                      agentId: int, state: var AgentState): uint16 =
   let teamId = getTeamId(agent)
   let building = env.findNearestFriendlyThingSpiral(state, teamId, SiegeWorkshop)
   if isNil(building) or building.cooldown != 0:
-    return 0'u8
-  actOrMove(controller, env, agent, agentId, state, building.pos, 3'u8)
+    return 0'u16
+  actOrMove(controller, env, agent, agentId, state, building.pos, 3'u16)
 
 proc canStartMangonelSuppression(controller: Controller, env: Environment, agent: Thing,
                                  agentId: int, state: var AgentState): bool =
@@ -820,12 +820,12 @@ proc shouldTerminateMangonelSuppression(controller: Controller, env: Environment
   not canStartMangonelSuppression(controller, env, agent, agentId, state)
 
 proc optMangonelSuppression(controller: Controller, env: Environment, agent: Thing,
-                            agentId: int, state: var AgentState): uint8 =
+                            agentId: int, state: var AgentState): uint16 =
   let teamId = getTeamId(agent)
   let building = env.findNearestFriendlyThingSpiral(state, teamId, MangonelWorkshop)
   if isNil(building) or building.cooldown != 0:
-    return 0'u8
-  actOrMove(controller, env, agent, agentId, state, building.pos, 3'u8)
+    return 0'u16
+  actOrMove(controller, env, agent, agentId, state, building.pos, 3'u16)
 
 proc canStartUnitPromotionFocus(controller: Controller, env: Environment, agent: Thing,
                                 agentId: int, state: var AgentState): bool =
@@ -845,7 +845,7 @@ proc shouldTerminateUnitPromotionFocus(controller: Controller, env: Environment,
   not canStartUnitPromotionFocus(controller, env, agent, agentId, state)
 
 proc optUnitPromotionFocus(controller: Controller, env: Environment, agent: Thing,
-                           agentId: int, state: var AgentState): uint8 =
+                           agentId: int, state: var AgentState): uint16 =
   let teamId = getTeamId(agent)
   for kind in [Castle, Monastery, Barracks, ArcheryRange, Stable]:
     if controller.getBuildingCount(env, teamId, kind) == 0:
@@ -858,8 +858,8 @@ proc optUnitPromotionFocus(controller: Controller, env: Environment, agent: Thin
     # Batch-queue additional units if resources allow
     if building.productionQueue.entries.len < ProductionQueueMaxSize:
       discard env.tryBatchQueueTrain(building, teamId, BatchTrainSmall)
-    return actOrMove(controller, env, agent, agentId, state, building.pos, 3'u8)
-  0'u8
+    return actOrMove(controller, env, agent, agentId, state, building.pos, 3'u16)
+  0'u16
 
 proc canStartRelicRaider(controller: Controller, env: Environment, agent: Thing,
                          agentId: int, state: var AgentState): bool =
@@ -871,11 +871,11 @@ proc shouldTerminateRelicRaider(controller: Controller, env: Environment, agent:
   agent.inventoryRelic > 0 or env.thingsByKind[Relic].len == 0
 
 proc optRelicRaider(controller: Controller, env: Environment, agent: Thing,
-                    agentId: int, state: var AgentState): uint8 =
+                    agentId: int, state: var AgentState): uint16 =
   let relic = env.findNearestThingSpiral(state, Relic)
   if isNil(relic):
-    return 0'u8
-  return actOrMove(controller, env, agent, agentId, state, relic.pos, 3'u8)
+    return 0'u16
+  return actOrMove(controller, env, agent, agentId, state, relic.pos, 3'u16)
 
 proc canStartRelicCourier(controller: Controller, env: Environment, agent: Thing,
                           agentId: int, state: var AgentState): bool =
@@ -887,7 +887,7 @@ proc shouldTerminateRelicCourier(controller: Controller, env: Environment, agent
   agent.inventoryRelic == 0
 
 proc optRelicCourier(controller: Controller, env: Environment, agent: Thing,
-                     agentId: int, state: var AgentState): uint8 =
+                     agentId: int, state: var AgentState): uint16 =
   let teamId = getTeamId(agent)
   let monastery = env.findNearestFriendlyThingSpiral(state, teamId, Monastery)
   let target =
@@ -895,7 +895,7 @@ proc optRelicCourier(controller: Controller, env: Environment, agent: Thing,
     elif agent.homeAltar.x >= 0: agent.homeAltar
     else: agent.pos
   if target == agent.pos:
-    return 0'u8
+    return 0'u16
   controller.moveTo(env, agent, agentId, state, target)
 
 proc canStartPredatorCull(controller: Controller, env: Environment, agent: Thing,
@@ -908,11 +908,11 @@ proc shouldTerminatePredatorCull(controller: Controller, env: Environment, agent
   agent.hp * 2 < agent.maxHp or isNil(findNearestPredator(env, agent.pos))
 
 proc optPredatorCull(controller: Controller, env: Environment, agent: Thing,
-                     agentId: int, state: var AgentState): uint8 =
+                     agentId: int, state: var AgentState): uint16 =
   let target = findNearestPredator(env, agent.pos)
   if isNil(target):
-    return 0'u8
-  actOrMove(controller, env, agent, agentId, state, target.pos, 2'u8)
+    return 0'u16
+  actOrMove(controller, env, agent, agentId, state, target.pos, 2'u16)
 
 proc canStartGoblinNestClear(controller: Controller, env: Environment, agent: Thing,
                              agentId: int, state: var AgentState): bool =
@@ -924,11 +924,11 @@ proc shouldTerminateGoblinNestClear(controller: Controller, env: Environment, ag
   isNil(findNearestGoblinStructure(env, agent.pos))
 
 proc optGoblinNestClear(controller: Controller, env: Environment, agent: Thing,
-                        agentId: int, state: var AgentState): uint8 =
+                        agentId: int, state: var AgentState): uint16 =
   let target = findNearestGoblinStructure(env, agent.pos)
   if isNil(target):
-    return 0'u8
-  actOrMove(controller, env, agent, agentId, state, target.pos, 2'u8)
+    return 0'u16
+  actOrMove(controller, env, agent, agentId, state, target.pos, 2'u16)
 
 proc canStartFertileExpansion(controller: Controller, env: Environment, agent: Thing,
                               agentId: int, state: var AgentState): bool =
@@ -940,7 +940,7 @@ proc shouldTerminateFertileExpansion(controller: Controller, env: Environment, a
   agent.inventoryWheat == 0 and agent.inventoryWood == 0 and agent.inventoryWater == 0
 
 proc optFertileExpansion(controller: Controller, env: Environment, agent: Thing,
-                         agentId: int, state: var AgentState): uint8 =
+                         agentId: int, state: var AgentState): uint16 =
   if agent.inventoryWheat > 0 or agent.inventoryWood > 0:
     let (didPlant, actPlant) = controller.tryPlantOnFertile(env, agent, agentId, state)
     if didPlant: return actPlant
@@ -948,8 +948,8 @@ proc optFertileExpansion(controller: Controller, env: Environment, agent: Thing,
     let basePos = agent.getBasePos()
     let target = findIrrigationTarget(env, basePos, 6)
     if target.x >= 0:
-      return actOrMove(controller, env, agent, agentId, state, target, 3'u8)
-  0'u8
+      return actOrMove(controller, env, agent, agentId, state, target, 3'u16)
+  0'u16
 
 proc canStartMarketTrade*(controller: Controller, env: Environment, agent: Thing,
                           agentId: int, state: var AgentState): bool =
@@ -979,15 +979,15 @@ proc shouldTerminateMarketTrade*(controller: Controller, env: Environment, agent
   not canStartMarketTrade(controller, env, agent, agentId, state)
 
 proc optMarketTrade*(controller: Controller, env: Environment, agent: Thing,
-                     agentId: int, state: var AgentState): uint8 =
+                     agentId: int, state: var AgentState): uint16 =
   ## Shared market trading action used by Gatherer, Builder, and Scripted roles.
   ## Moves to nearest friendly Market and interacts with it.
   let teamId = getTeamId(agent)
   state.basePosition = agent.getBasePos()
   let market = env.findNearestFriendlyThingSpiral(state, teamId, Market)
   if isNil(market) or market.cooldown != 0:
-    return 0'u8
-  return actOrMove(controller, env, agent, agentId, state, market.pos, 3'u8)
+    return 0'u16
+  return actOrMove(controller, env, agent, agentId, state, market.pos, 3'u16)
 
 let MarketTradeOption* = OptionDef(
   name: "MarketTrade",
@@ -1035,15 +1035,20 @@ proc canStartResearchUniversityTech*(controller: Controller, env: Environment, a
 
 proc shouldTerminateResearchUniversityTech*(controller: Controller, env: Environment, agent: Thing,
                                             agentId: int, state: var AgentState): bool =
-  not canStartResearchUniversityTech(controller, env, agent, agentId, state)
+  ## Only terminate if university gone or all techs researched (not for temporary resource dips)
+  let teamId = getTeamId(agent)
+  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+    return true
+  controller.getBuildingCount(env, teamId, University) == 0 or
+    not hasUnresearchedUniversityTech(env, teamId)
 
 proc optResearchUniversityTech*(controller: Controller, env: Environment, agent: Thing,
-                                agentId: int, state: var AgentState): uint8 =
+                                agentId: int, state: var AgentState): uint16 =
   let teamId = getTeamId(agent)
   let university = env.findNearestFriendlyThingSpiral(state, teamId, University)
   if isNil(university) or university.cooldown != 0:
-    return 0'u8
-  actOrMove(controller, env, agent, agentId, state, university.pos, 3'u8)
+    return 0'u16
+  actOrMove(controller, env, agent, agentId, state, university.pos, 3'u16)
 
 let ResearchUniversityTechOption* = OptionDef(
   name: "ResearchUniversityTech",
@@ -1085,15 +1090,20 @@ proc canStartResearchCastleTech*(controller: Controller, env: Environment, agent
 
 proc shouldTerminateResearchCastleTech*(controller: Controller, env: Environment, agent: Thing,
                                         agentId: int, state: var AgentState): bool =
-  not canStartResearchCastleTech(controller, env, agent, agentId, state)
+  ## Only terminate if castle is gone or all techs researched (not for temporary resource dips)
+  let teamId = getTeamId(agent)
+  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+    return true
+  controller.getBuildingCount(env, teamId, Castle) == 0 or
+    not hasUnresearchedCastleTech(env, teamId)
 
 proc optResearchCastleTech*(controller: Controller, env: Environment, agent: Thing,
-                            agentId: int, state: var AgentState): uint8 =
+                            agentId: int, state: var AgentState): uint16 =
   let teamId = getTeamId(agent)
   let castle = env.findNearestFriendlyThingSpiral(state, teamId, Castle)
-  if isNil(castle) or castle.cooldown != 0:
-    return 0'u8
-  actOrMove(controller, env, agent, agentId, state, castle.pos, 3'u8)
+  if isNil(castle):
+    return 0'u16
+  actOrMove(controller, env, agent, agentId, state, castle.pos, 3'u16)
 
 let ResearchCastleTechOption* = OptionDef(
   name: "ResearchCastleTech",
@@ -1103,12 +1113,207 @@ let ResearchCastleTechOption* = OptionDef(
   interruptible: true
 )
 
+# ============================================================================
+# Economy Tech Research Option - Mill, LumberCamp, MiningCamp, TownCenter
+# ============================================================================
+
+const EconomyTechBuildings = [TownCenter, Mill, LumberCamp, MiningCamp]
+
+proc findNextAffordableEconomyTech(env: Environment, teamId: int): tuple[tech: EconomyTechType, building: ThingKind, found: bool] =
+  ## Find the next affordable, unresearched economy tech across all building types.
+  ## Returns the tech, the building it's researched at, and whether one was found.
+  for buildingKind in EconomyTechBuildings:
+    let tech = env.getNextEconomyTech(teamId, buildingKind)
+    if economyTechBuilding(tech) != buildingKind:
+      continue  # No available tech for this building
+    if env.teamEconomyTechs[teamId].researched[tech]:
+      continue  # Already researched
+    let costs = economyTechCost(tech)
+    if env.canSpendStockpile(teamId, costs):
+      return (tech, buildingKind, true)
+  return (TechWheelbarrow, TownCenter, false)
+
+proc canStartResearchEconomyTech*(controller: Controller, env: Environment, agent: Thing,
+                                   agentId: int, state: var AgentState): bool =
+  if agent.unitClass != UnitVillager:
+    return false
+  let teamId = getTeamId(agent)
+  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+    return false
+  let (_, _, found) = findNextAffordableEconomyTech(env, teamId)
+  found
+
+proc shouldTerminateResearchEconomyTech*(controller: Controller, env: Environment, agent: Thing,
+                                          agentId: int, state: var AgentState): bool =
+  not canStartResearchEconomyTech(controller, env, agent, agentId, state)
+
+proc optResearchEconomyTech*(controller: Controller, env: Environment, agent: Thing,
+                              agentId: int, state: var AgentState): uint16 =
+  let teamId = getTeamId(agent)
+  let (_, buildingKind, found) = findNextAffordableEconomyTech(env, teamId)
+  if not found:
+    return 0'u16
+  let building = env.findNearestFriendlyThingSpiral(state, teamId, buildingKind)
+  if isNil(building) or building.cooldown != 0:
+    return 0'u16
+  actOrMove(controller, env, agent, agentId, state, building.pos, 3'u16)
+
+let ResearchEconomyTechOption* = OptionDef(
+  name: "ResearchEconomyTech",
+  canStart: canStartResearchEconomyTech,
+  shouldTerminate: shouldTerminateResearchEconomyTech,
+  act: optResearchEconomyTech,
+  interruptible: true
+)
+
+# ============================================================================
+# Blacksmith Upgrade Research Option
+# ============================================================================
+
+proc hasUnresearchedBlacksmithUpgrade(env: Environment, teamId: int): bool =
+  for upgradeType in BlacksmithUpgradeType:
+    if env.teamBlacksmithUpgrades[teamId].levels[upgradeType] < BlacksmithUpgradeMaxLevel:
+      return true
+  false
+
+proc canAffordNextBlacksmithUpgrade(env: Environment, teamId: int): bool =
+  let upgradeType = env.getNextBlacksmithUpgrade(teamId)
+  let currentLevel = env.teamBlacksmithUpgrades[teamId].levels[upgradeType]
+  if currentLevel >= BlacksmithUpgradeMaxLevel:
+    return false
+  let costMultiplier = currentLevel + 1
+  let foodCost = BlacksmithUpgradeFoodCost * costMultiplier
+  let goldCost = BlacksmithUpgradeGoldCost * costMultiplier
+  env.canSpendStockpile(teamId,
+    [(res: ResourceFood, count: foodCost),
+     (res: ResourceGold, count: goldCost)])
+
+proc canStartResearchBlacksmithUpgrade*(controller: Controller, env: Environment, agent: Thing,
+                                        agentId: int, state: var AgentState): bool =
+  if agent.unitClass != UnitVillager:
+    return false
+  let teamId = getTeamId(agent)
+  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+    return false
+  controller.getBuildingCount(env, teamId, Blacksmith) > 0 and
+    hasUnresearchedBlacksmithUpgrade(env, teamId) and
+    canAffordNextBlacksmithUpgrade(env, teamId)
+
+proc shouldTerminateResearchBlacksmithUpgrade*(controller: Controller, env: Environment, agent: Thing,
+                                                agentId: int, state: var AgentState): bool =
+  not canStartResearchBlacksmithUpgrade(controller, env, agent, agentId, state)
+
+proc optResearchBlacksmithUpgrade*(controller: Controller, env: Environment, agent: Thing,
+                                    agentId: int, state: var AgentState): uint16 =
+  let teamId = getTeamId(agent)
+  let blacksmith = env.findNearestFriendlyThingSpiral(state, teamId, Blacksmith)
+  if isNil(blacksmith) or blacksmith.cooldown != 0:
+    return 0'u16
+  actOrMove(controller, env, agent, agentId, state, blacksmith.pos, 3'u16)
+
+let ResearchBlacksmithUpgradeOption* = OptionDef(
+  name: "ResearchBlacksmithUpgrade",
+  canStart: canStartResearchBlacksmithUpgrade,
+  shouldTerminate: shouldTerminateResearchBlacksmithUpgrade,
+  act: optResearchBlacksmithUpgrade,
+  interruptible: true
+)
+
+# ============================================================================
+# Unit Upgrade Research Option - Barracks, Stable, ArcheryRange
+# ============================================================================
+
+const UnitUpgradeBuildings = [Barracks, Stable, ArcheryRange]
+
+proc hasUnresearchedUnitUpgrade(env: Environment, teamId: int): bool =
+  ## Check if the team has any unresearched unit upgrade at any military building.
+  for upgrade in UnitUpgradeType:
+    if env.teamUnitUpgrades[teamId].researched[upgrade]:
+      continue
+    let prereq = upgradePrerequisite(upgrade)
+    if prereq != upgrade and not env.teamUnitUpgrades[teamId].researched[prereq]:
+      continue
+    return true
+  false
+
+proc canAffordAnyUnitUpgrade(env: Environment, teamId: int): bool =
+  ## Check if the team can afford any available unit upgrade.
+  for upgrade in UnitUpgradeType:
+    if env.teamUnitUpgrades[teamId].researched[upgrade]:
+      continue
+    let prereq = upgradePrerequisite(upgrade)
+    if prereq != upgrade and not env.teamUnitUpgrades[teamId].researched[prereq]:
+      continue
+    let costs = upgradeCosts(upgrade)
+    if env.canSpendStockpile(teamId, costs):
+      return true
+  false
+
+proc canStartResearchUnitUpgrade*(controller: Controller, env: Environment, agent: Thing,
+                                   agentId: int, state: var AgentState): bool =
+  if agent.unitClass != UnitVillager:
+    return false
+  let teamId = getTeamId(agent)
+  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+    return false
+  # Need at least one military building
+  var hasBuilding = false
+  for kind in UnitUpgradeBuildings:
+    if controller.getBuildingCount(env, teamId, kind) > 0:
+      hasBuilding = true
+      break
+  hasBuilding and
+    hasUnresearchedUnitUpgrade(env, teamId) and
+    canAffordAnyUnitUpgrade(env, teamId)
+
+proc shouldTerminateResearchUnitUpgrade*(controller: Controller, env: Environment, agent: Thing,
+                                          agentId: int, state: var AgentState): bool =
+  not canStartResearchUnitUpgrade(controller, env, agent, agentId, state)
+
+proc optResearchUnitUpgrade*(controller: Controller, env: Environment, agent: Thing,
+                              agentId: int, state: var AgentState): uint16 =
+  ## Move to nearest military building that has an affordable, available upgrade.
+  let teamId = getTeamId(agent)
+  var bestBuilding: Thing = nil
+  var bestDist = int.high
+  for kind in UnitUpgradeBuildings:
+    if controller.getBuildingCount(env, teamId, kind) == 0:
+      continue
+    # Check if this building type has an available upgrade
+    let upgrade = env.getNextUnitUpgrade(teamId, kind)
+    if env.teamUnitUpgrades[teamId].researched[upgrade]:
+      continue
+    let prereq = upgradePrerequisite(upgrade)
+    if prereq != upgrade and not env.teamUnitUpgrades[teamId].researched[prereq]:
+      continue
+    let costs = upgradeCosts(upgrade)
+    if not env.canSpendStockpile(teamId, costs):
+      continue
+    let building = env.findNearestFriendlyThingSpiral(state, teamId, kind)
+    if isNil(building) or building.cooldown != 0:
+      continue
+    let dist = int(chebyshevDist(agent.pos, building.pos))
+    if dist < bestDist:
+      bestDist = dist
+      bestBuilding = building
+  if isNil(bestBuilding):
+    return 0'u16
+  actOrMove(controller, env, agent, agentId, state, bestBuilding.pos, 3'u16)
+
+let ResearchUnitUpgradeOption* = OptionDef(
+  name: "ResearchUnitUpgrade",
+  canStart: canStartResearchUnitUpgrade,
+  shouldTerminate: shouldTerminateResearchUnitUpgrade,
+  act: optResearchUnitUpgrade,
+  interruptible: true
+)
+
 proc canStartStockpileDistributor(controller: Controller, env: Environment, agent: Thing,
                                   agentId: int, state: var AgentState): bool =
   canStartStoreValuables(controller, env, agent, agentId, state)
 
 proc optStockpileDistributor(controller: Controller, env: Environment, agent: Thing,
-                             agentId: int, state: var AgentState): uint8 =
+                             agentId: int, state: var AgentState): uint16 =
   optStoreValuables(controller, env, agent, agentId, state)
 
 proc canStartDockControl(controller: Controller, env: Environment, agent: Thing,
@@ -1125,17 +1330,17 @@ proc shouldTerminateDockControl(controller: Controller, env: Environment, agent:
   agent.unitClass != UnitVillager or not env.canAffordBuild(agent, thingItem("Dock"))
 
 proc optDockControl(controller: Controller, env: Environment, agent: Thing,
-                    agentId: int, state: var AgentState): uint8 =
+                    agentId: int, state: var AgentState): uint16 =
   if agent.unitClass == UnitBoat:
     let fish = env.findNearestThingSpiral(state, Fish)
     if isNil(fish):
-      return 0'u8
-    return actOrMove(controller, env, agent, agentId, state, fish.pos, 3'u8)
+      return 0'u16
+    return actOrMove(controller, env, agent, agentId, state, fish.pos, 3'u16)
 
   # Find water and adjacent standing position (inlined from findNearestWaterEdge)
   let water = findNearestWaterSpiral(env, state)
   if water.x < 0:
-    return 0'u8
+    return 0'u16
   var stand = ivec2(-1, -1)
   for d in AdjacentOffsets8:
     let pos = water + d
@@ -1147,10 +1352,10 @@ proc optDockControl(controller: Controller, env: Environment, agent: Thing,
       stand = pos
       break
   if stand.x < 0:
-    return 0'u8
+    return 0'u16
   if stand == agent.pos:
     return saveStateAndReturn(controller, agentId, state,
-      encodeAction(8'u8, buildIndexFor(Dock).uint8))
+      encodeAction(8'u16, buildIndexFor(Dock).uint8))
   controller.moveTo(env, agent, agentId, state, stand)
 
 proc canStartTerritorySweeper(controller: Controller, env: Environment, agent: Thing,
@@ -1163,16 +1368,16 @@ proc shouldTerminateTerritorySweeper(controller: Controller, env: Environment, a
   agent.inventoryLantern == 0 and isNil(findNearestEnemyBuilding(env, agent.pos, getTeamId(agent)))
 
 proc optTerritorySweeper(controller: Controller, env: Environment, agent: Thing,
-                         agentId: int, state: var AgentState): uint8 =
+                         agentId: int, state: var AgentState): uint16 =
   let enemy = findNearestEnemyBuilding(env, agent.pos, getTeamId(agent))
   if not isNil(enemy):
-    return actOrMove(controller, env, agent, agentId, state, enemy.pos, 2'u8)
+    return actOrMove(controller, env, agent, agentId, state, enemy.pos, 2'u16)
   let teamId = getTeamId(agent)
   let basePos = agent.getBasePos()
   let target = findLanternFrontierCandidate(env, state, teamId, basePos)
   if target.x < 0 or agent.inventoryLantern <= 0:
-    return 0'u8
-  return actOrMove(controller, env, agent, agentId, state, target, 6'u8)
+    return 0'u16
+  return actOrMove(controller, env, agent, agentId, state, target, 6'u16)
 
 proc canStartTempleFusion(controller: Controller, env: Environment, agent: Thing,
                           agentId: int, state: var AgentState): bool =
@@ -1185,11 +1390,11 @@ proc shouldTerminateTempleFusion(controller: Controller, env: Environment, agent
   agent.unitClass != UnitVillager or env.thingsByKind[Temple].len == 0
 
 proc optTempleFusion(controller: Controller, env: Environment, agent: Thing,
-                     agentId: int, state: var AgentState): uint8 =
+                     agentId: int, state: var AgentState): uint16 =
   let temple = env.findNearestThingSpiral(state, Temple)
   if isNil(temple):
-    return 0'u8
-  return actOrMove(controller, env, agent, agentId, state, temple.pos, 3'u8)
+    return 0'u16
+  return actOrMove(controller, env, agent, agentId, state, temple.pos, 3'u16)
 
 # ============================================================================
 # Monk Behaviors
@@ -1229,15 +1434,15 @@ proc shouldTerminateMonkHeal*(controller: Controller, env: Environment, agent: T
   isNil(findNearestWoundedAlly(env, agent, HealerSeekRadius))
 
 proc optMonkHeal*(controller: Controller, env: Environment, agent: Thing,
-                  agentId: int, state: var AgentState): uint8 =
+                  agentId: int, state: var AgentState): uint16 =
   ## Move toward the nearest wounded ally to heal them with aura.
   let wounded = findNearestWoundedAlly(env, agent, HealerSeekRadius)
   if isNil(wounded):
-    return 0'u8
+    return 0'u16
   let dist = int(chebyshevDist(agent.pos, wounded.pos))
   # Already within healing aura range - stay put and let aura heal
   if dist <= MonkAuraRadius:
-    return 0'u8
+    return 0'u16
   controller.moveTo(env, agent, agentId, state, wounded.pos)
 
 let MonkHealOption* = OptionDef(
@@ -1265,23 +1470,23 @@ proc shouldTerminateMonkRelicCollect*(controller: Controller, env: Environment, 
   agent.inventoryRelic == 0 and env.thingsByKind[Relic].len == 0
 
 proc optMonkRelicCollect*(controller: Controller, env: Environment, agent: Thing,
-                          agentId: int, state: var AgentState): uint8 =
+                          agentId: int, state: var AgentState): uint16 =
   ## Collect relics and deposit them in a monastery for gold generation.
   let teamId = getTeamId(agent)
   # If carrying a relic, deposit it in a monastery
   if agent.inventoryRelic > 0:
     let monastery = env.findNearestFriendlyThingSpiral(state, teamId, Monastery)
     if not isNil(monastery):
-      return actOrMove(controller, env, agent, agentId, state, monastery.pos, 3'u8)
+      return actOrMove(controller, env, agent, agentId, state, monastery.pos, 3'u16)
     # No monastery - return to home altar
     if agent.homeAltar.x >= 0:
       return controller.moveTo(env, agent, agentId, state, agent.homeAltar)
-    return 0'u8
+    return 0'u16
   # Otherwise, find and collect a relic
   let relic = env.findNearestThingSpiral(state, Relic)
   if isNil(relic):
-    return 0'u8
-  return actOrMove(controller, env, agent, agentId, state, relic.pos, 3'u8)
+    return 0'u16
+  return actOrMove(controller, env, agent, agentId, state, relic.pos, 3'u16)
 
 let MonkRelicCollectOption* = OptionDef(
   name: "MonkRelicCollect",
@@ -1315,15 +1520,15 @@ proc shouldTerminateMonkConversion*(controller: Controller, env: Environment, ag
   isNil(findNearestEnemyAgentSpatial(env, agent.pos, teamId, conversionRadius))
 
 proc optMonkConversion*(controller: Controller, env: Environment, agent: Thing,
-                        agentId: int, state: var AgentState): uint8 =
+                        agentId: int, state: var AgentState): uint16 =
   ## Move toward and convert the nearest enemy agent.
   let teamId = getTeamId(agent)
   let conversionRadius = ObservationRadius.int * 2
   let enemy = findNearestEnemyAgentSpatial(env, agent.pos, teamId, conversionRadius)
   if isNil(enemy):
-    return 0'u8
+    return 0'u16
   # Monks use attack action (verb 2) to convert
-  return actOrMove(controller, env, agent, agentId, state, enemy.pos, 2'u8)
+  return actOrMove(controller, env, agent, agentId, state, enemy.pos, 2'u16)
 
 let MonkConversionOption* = OptionDef(
   name: "MonkConversion",
@@ -1373,7 +1578,7 @@ proc shouldTerminateTradeCogTradeRoute*(controller: Controller, env: Environment
   not canStartTradeCogTradeRoute(controller, env, agent, agentId, state)
 
 proc optTradeCogTradeRoute*(controller: Controller, env: Environment, agent: Thing,
-                             agentId: int, state: var AgentState): uint8 =
+                             agentId: int, state: var AgentState): uint16 =
   ## Trade cog navigates between friendly docks to generate gold
   let teamId = getTeamId(agent)
   let homeDock = agent.tradeHomeDock
@@ -1381,7 +1586,7 @@ proc optTradeCogTradeRoute*(controller: Controller, env: Environment, agent: Thi
   # Find target dock (different from home dock)
   let targetDock = findNearestFriendlyDock(env, agent.pos, teamId, homeDock)
   if isNil(targetDock):
-    return 0'u8
+    return 0'u16
 
   # Move toward target dock
   controller.moveTo(env, agent, agentId, state, targetDock.pos)
@@ -1412,12 +1617,12 @@ proc shouldTerminateSiegeAdvance*(controller: Controller, env: Environment, agen
     isNil(findNearestEnemyBuilding(env, agent.pos, getTeamId(agent)))
 
 proc optSiegeAdvance*(controller: Controller, env: Environment, agent: Thing,
-                      agentId: int, state: var AgentState): uint8 =
+                      agentId: int, state: var AgentState): uint16 =
   ## Siege unit advances toward enemy buildings and attacks them
   let enemy = findNearestEnemyBuilding(env, agent.pos, getTeamId(agent))
   if isNil(enemy):
-    return 0'u8
-  return actOrMove(controller, env, agent, agentId, state, enemy.pos, 2'u8)
+    return 0'u16
+  return actOrMove(controller, env, agent, agentId, state, enemy.pos, 2'u16)
 
 let SiegeAdvanceOption* = OptionDef(
   name: "SiegeAdvance",
@@ -1453,7 +1658,7 @@ proc shouldTerminateSettlerMigrate*(controller: Controller, env: Environment, ag
   not agent.isSettler or agent.settlerTarget.x < 0 or agent.settlerArrived
 
 proc optSettlerMigrate*(controller: Controller, env: Environment, agent: Thing,
-                        agentId: int, state: var AgentState): uint8 =
+                        agentId: int, state: var AgentState): uint16 =
   let teamId = getTeamId(agent)
 
   # Abort migration if too few settlers remain alive
@@ -1461,7 +1666,7 @@ proc optSettlerMigrate*(controller: Controller, env: Environment, agent: Thing,
     agent.isSettler = false
     agent.settlerTarget = ivec2(-1, -1)
     agent.settlerArrived = false
-    return 0'u8
+    return 0'u16
 
   # Check if target is blocked by an enemy building; find alternate if so
   var target = agent.settlerTarget
@@ -1489,7 +1694,7 @@ proc optSettlerMigrate*(controller: Controller, env: Environment, agent: Thing,
   let dist = int(chebyshevDist(agent.pos, target))
   if dist <= SettlerArrivalRadius:
     agent.settlerArrived = true
-    return 0'u8
+    return 0'u16
 
   controller.moveTo(env, agent, agentId, state, target)
 

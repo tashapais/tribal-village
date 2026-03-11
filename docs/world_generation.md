@@ -2,7 +2,7 @@
 
 Date: 2026-01-19
 Owner: Systems / Worldgen
-Status: Draft
+Status: Active
 
 ## Overview
 World generation is split across:

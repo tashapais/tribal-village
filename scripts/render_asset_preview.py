@@ -7,75 +7,20 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from cliff_assets import CLIFF_PREVIEW_SPECS
+from script_paths import DATA_DIR
+
 
 SPRITE = tuple[str, Path, set[tuple[int, int]]]
 
 DEFAULT_SPRITES: list[SPRITE] = [
-    (
-        "Edge N",
-        Path("data/cliff_edge_ew_s.png"),
-        {(0, -1)},
-    ),
-    (
-        "Edge E",
-        Path("data/cliff_edge_ns_w.png"),
-        {(1, 0)},
-    ),
-    (
-        "Edge S",
-        Path("data/cliff_edge_ew.png"),
-        {(0, 1)},
-    ),
-    (
-        "Edge W",
-        Path("data/cliff_edge_ns.png"),
-        {(-1, 0)},
-    ),
-    (
-        "Corner In NE",
-        Path("data/oriented/cliff_corner_in_ne.png"),
-        {(0, -1), (1, 0)},
-    ),
-    (
-        "Corner In SE",
-        Path("data/oriented/cliff_corner_in_se.png"),
-        {(1, 0), (0, 1)},
-    ),
-    (
-        "Corner In SW",
-        Path("data/oriented/cliff_corner_in_sw.png"),
-        {(0, 1), (-1, 0)},
-    ),
-    (
-        "Corner In NW",
-        Path("data/oriented/cliff_corner_in_nw.png"),
-        {(-1, 0), (0, -1)},
-    ),
-    (
-        "Corner Out NE",
-        Path("data/oriented/cliff_corner_out_ne.png"),
-        {(1, -1)},
-    ),
-    (
-        "Corner Out SE",
-        Path("data/oriented/cliff_corner_out_se.png"),
-        {(1, 1)},
-    ),
-    (
-        "Corner Out SW",
-        Path("data/oriented/cliff_corner_out_sw.png"),
-        {(-1, 1)},
-    ),
-    (
-        "Corner Out NW",
-        Path("data/oriented/cliff_corner_out_nw.png"),
-        {(-1, -1)},
-    ),
+    (label, DATA_DIR / relative_path, low_cells)
+    for label, relative_path, low_cells in CLIFF_PREVIEW_SPECS
 ]
 
 
 def load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    font_path = Path("data/Inter-Regular.ttf")
+    font_path = DATA_DIR / "Inter-Regular.ttf"
     if font_path.exists():
         return ImageFont.truetype(str(font_path), size=size)
     return ImageFont.load_default()
@@ -244,7 +189,7 @@ def main() -> None:
     parser.add_argument(
         "--out",
         type=Path,
-        default=Path("data/tmp/asset_preview.png"),
+        default=DATA_DIR / "tmp" / "asset_preview.png",
         help="Output path for the preview image.",
     )
     parser.add_argument(

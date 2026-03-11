@@ -10,13 +10,11 @@ Usage:
     python scripts/asset_audit.py [--remove-unused] [--verbose]
 """
 
-import os
 import sys
 import argparse
 
-# Root data directory
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-
+from cliff_assets import CLIFF_REQUIRED_KEYS
+from script_paths import DATA_DIR
 
 def get_used_asset_keys():
     """Return set of asset keys that are actually used by the game.
@@ -54,9 +52,9 @@ def get_used_asset_keys():
         "tree", "wheat", "fish", "stone", "gold", "bush", "cactus",
         "stalagmite", "magma", "spawner", "corpse", "skeleton", "stump",
         "stubble", "lantern", "temple", "control_point",
-        "cliff_edge_ew", "cliff_edge_ew_s", "cliff_edge_ns", "cliff_edge_ns_w",
         "goblet"  # Relic sprite
     ])
+    used.update(CLIFF_REQUIRED_KEYS)
 
     # Item sprites (from ItemCatalog in registry.nim)
     used.update([
@@ -106,10 +104,14 @@ def get_used_asset_keys():
         for d in ["n", "s", "e", "w"]:
             used.add(f"{prefix}.{d}")
 
-    # Cliff corner sprites (from ThingCatalog)
-    for dir_type in ["in", "out"]:
-        for corner in ["ne", "se", "sw", "nw"]:
-            used.add(f"oriented/cliff_corner_{dir_type}_{corner}")
+    # Ramps (registry.nim TerrainThingCatalog)
+    for direction in ["up", "down"]:
+        for d in ["n", "s", "e", "w"]:
+            used.add(f"oriented/ramp_{direction}_{d}")
+
+    # Waterfalls (registry.nim ThingCatalog)
+    for d in ["n", "e", "s", "w"]:
+        used.add(f"waterfall_{d}")
 
     return used
 
@@ -117,15 +119,12 @@ def get_used_asset_keys():
 def scan_data_directory():
     """Scan data directory and return dict of {asset_key: file_size}."""
     assets = {}
-    for root, dirs, files in os.walk(DATA_DIR):
+    for path in DATA_DIR.rglob("*.png"):
         # Skip df_view directory (optional DF tileset)
-        if "df_view" in root:
+        if "df_view" in path.parts:
             continue
-        for f in files:
-            if f.endswith(".png"):
-                path = os.path.join(root, f)
-                key = path.replace(DATA_DIR + "/", "").replace(".png", "")
-                assets[key] = os.path.getsize(path)
+        key = path.relative_to(DATA_DIR).as_posix().removesuffix(".png")
+        assets[key] = path.stat().st_size
     return assets
 
 
@@ -211,9 +210,9 @@ def main():
         removed_count = 0
         removed_size = 0
         for key in unused:
-            path = os.path.join(DATA_DIR, f"{key}.png")
-            if os.path.exists(path):
-                os.remove(path)
+            path = DATA_DIR / f"{key}.png"
+            if path.exists():
+                path.unlink()
                 removed_count += 1
                 removed_size += unused[key]
                 print(f"  Removed: {path}")

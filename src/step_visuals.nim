@@ -169,6 +169,23 @@ proc stepDecayUnitTrails(env: Environment) =
         inc writeIdx
     env.unitTrails.setLen(writeIdx)
 
+proc stepDecayDustParticles(env: Environment) =
+  ## Update dust particle positions and remove expired ones.
+  ## Particles drift upward and fade out quickly.
+  if env.dustParticles.len > 0:
+    var writeIdx = 0
+    for readIdx in 0 ..< env.dustParticles.len:
+      env.dustParticles[readIdx].countdown -= 1
+      if env.dustParticles[readIdx].countdown > 0:
+        # Update position based on velocity (upward drift)
+        env.dustParticles[readIdx].pos.x += env.dustParticles[readIdx].velocity.x
+        env.dustParticles[readIdx].pos.y += env.dustParticles[readIdx].velocity.y
+        # Slow down horizontal drift
+        env.dustParticles[readIdx].velocity.x *= 0.85
+        env.dustParticles[writeIdx] = env.dustParticles[readIdx]
+        inc writeIdx
+    env.dustParticles.setLen(writeIdx)
+
 proc stepDecayWaterRipples(env: Environment) =
   ## Decay and remove expired water ripples.
   ## Ripples expand and fade over time.

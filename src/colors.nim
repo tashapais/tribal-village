@@ -83,6 +83,137 @@ const
   UiSelection*  = color(0.20, 0.90, 0.20, 1.0)    ## Selection highlight
   UiHover*      = color(0.30, 0.70, 0.90, 0.80)   ## Hover highlight
 
+  # Selection glow
+  UiSelectionGlow* = color(0.3, 0.7, 1.0, 0.4)    ## Blue selection glow base
+
+  # Panel backgrounds (used in renderer_panels, minimap)
+  UiBgPanel*     = color(0.1, 0.1, 0.15, 0.85)    ## Info panel background
+  UiBgBar*       = color(0.1, 0.1, 0.15, 0.8)     ## Resource bar background
+  UiMinimapBorder* = color(0.2, 0.2, 0.25, 0.9)   ## Minimap border (panels)
+  UiMinimapBorderDark* = color(0.15, 0.15, 0.15, 0.95) ## Minimap border (minimap.nim)
+
+  # Viewport indicator
+  UiViewportOutline* = color(1.0, 1.0, 1.0, 0.7)  ## Minimap viewport outline
+
+# ---------------------------------------------------------------------------
+# Rendering Colors - Semantic mapping for game rendering
+# ---------------------------------------------------------------------------
+# Maps inline color literals to named constants for consistent theming.
+
+const
+  # Neutral/fallback colors
+  NeutralGray*       = color(0.5, 0.5, 0.5, 1.0)  ## Neutral/unaffiliated gray
+  NeutralGrayLight*  = color(0.6, 0.6, 0.6, 1.0)  ## Default team fallback
+  NeutralGrayDim*    = color(0.6, 0.6, 0.6, 0.9)  ## Building default tint
+  NeutralGrayMinimap* = color(0.7, 0.7, 0.7, 1.0) ## Minimap neutral building
+  RallyPointFallback* = color(0.8, 0.8, 0.8, 1.0) ## Rally point default team color
+
+  # Construction/scaffolding
+  ScaffoldTint*      = color(0.7, 0.5, 0.2, 0.8)  ## Brown/wood scaffolding
+  ScaffoldBarTint*   = color(0.6, 0.4, 0.15, 0.7) ## Scaffold cross-bar tint
+  ConstructionBarFill* = color(0.9, 0.7, 0.1, 1.0) ## Construction progress fill (yellow)
+  BarBgColor*        = color(0.3, 0.3, 0.3, 0.7)  ## Progress bar empty/background
+  ProductionBarFill* = color(0.2, 0.5, 1.0, 1.0)  ## Production queue progress fill (blue)
+
+  # Building ghost placement
+  GhostValidColor*   = color(0.3, 1.0, 0.3, 0.6)  ## Valid placement (semi-transparent green)
+  GhostInvalidColor* = color(1.0, 0.3, 0.3, 0.6)  ## Invalid placement (semi-transparent red)
+
+  # Default white tint (for overlay icons)
+  TintWhite*         = color(1, 1, 1, 1)           ## Full-opacity white tint
+
+  # Wall rendering
+  WallTintColor*     = color(0.3, 0.3, 0.3, 1.0)  ## Wall sprite tint (dark gray)
+
+  # Grid overlay
+  GridLineColor*     = color(0.4, 0.4, 0.4, 0.3)  ## Grid line overlay
+
+  # Damage number colors
+  DmgColorDamage*    = color(1.0, 0.3, 0.3, 1.0)  ## Damage text (red)
+  DmgColorHeal*      = color(0.3, 1.0, 0.3, 1.0)  ## Heal text (green)
+  DmgColorCritical*  = color(1.0, 0.8, 0.2, 1.0)  ## Critical hit text (yellow/gold)
+  TextOutlineColor*  = color(0, 0, 0, 0.6)         ## Text outline for visibility
+
+  # Effect colors - Spawn and particle
+  SpawnEffectTint*   = color(0.6, 0.9, 1.0, 1.0)  ## Spawn glow (cyan) - alpha applied at runtime
+  RippleTint*        = color(0.5, 0.7, 0.9, 1.0)  ## Water ripple (light cyan/blue) - alpha applied
+  AttackImpactTint*  = color(1.0, 0.5, 0.2, 1.0)  ## Attack impact (orange/red) - alpha applied
+  GatherSparkleTint* = color(1.0, 0.85, 0.3, 1.0) ## Gather sparkle (golden) - alpha applied
+  ConstructionDustTint* = color(0.7, 0.6, 0.4, 1.0) ## Construction dust (brown) - alpha applied
+  ConversionGoldenTint* = color(0.95, 0.85, 0.35, 1.0) ## Conversion effect golden base
+  CloudPuffTint*     = color(0.82, 0.84, 0.9, 1.0) ## Rain cloud puff base - alpha applied
+
+  # Rally point preview
+  RallyPreviewColor* = color(0.3, 1.0, 0.3, 1.0)  ## Rally preview (green) - alpha applied
+
+  # Dust terrain colors (base, alpha applied at runtime)
+  DustSandColor*     = color(0.85, 0.75, 0.55, 1.0) ## Sand/Dune terrain dust
+  DustSnowColor*     = color(0.95, 0.95, 1.0, 1.0)  ## Snow terrain dust
+  DustMudColor*      = color(0.45, 0.35, 0.25, 1.0)  ## Mud terrain dust
+  DustGrassColor*    = color(0.6, 0.55, 0.4, 1.0)    ## Grass/Fertile terrain dust
+  DustRoadColor*     = color(0.5, 0.5, 0.5, 1.0)     ## Road terrain dust
+  DustDefaultColor*  = color(0.7, 0.6, 0.4, 1.0)     ## Default terrain dust (tan)
+
+  # Trade route
+  TradeRouteGoldTint* = color(0.95, 0.78, 0.15, 0.7) ## Gold color for trade route lines
+
+  # Goblin
+  GoblinTint*        = color(0.35, 0.80, 0.35, 1.0) ## Goblin spawn tint (green)
+
+  # Shadow
+  ShadowTint*        = color(0.0, 0.0, 0.0, 0.25)   ## Unit shadow (semi-transparent black)
+
+  # Health bar gradient endpoints
+  HealthBarGreen*    = color(0.1, 0.8, 0.1, 1.0)    ## Health bar at full HP
+  HealthBarYellow*   = color(1.0, 0.8, 0.1, 1.0)    ## Health bar at half HP
+  HealthBarRed*      = color(1.0, 0.0, 0.1, 1.0)    ## Health bar at empty HP
+
+  # Rally point / selection white core
+  RallyCoreTint*     = color(1.0, 1.0, 1.0, 1.0)    ## Rally point inner core (white, alpha applied at runtime)
+
+  # Label rendering
+  LabelBgBlack*      = color(0, 0, 0, 1)             ## Label background base (black, alpha applied at runtime)
+
+  # Weather base tints (R/G fixed, B varies at runtime per particle)
+  RainBaseR*         = 0.8'f32                        ## Rain particle base red
+  RainBaseG*         = 0.85'f32                       ## Rain particle base green
+
+  # Smoke/wind base brightness (per-particle variation at runtime)
+  SmokeBaseGray*     = 0.7'f32                        ## Smoke particle base gray value
+
+  # Terrain ambient base colors (used with applyAmbient)
+  ShallowWaterBase*  = color(0.6, 0.85, 0.95, 1.0)   ## Shallow water ambient tint base
+  MountainBase*      = color(0.35, 0.32, 0.30, 1.0)   ## Mountain ambient tint base
+
+  # Resource icon dim opacity
+  ResourceIconDimAlpha* = 0.35'f32                    ## Opacity for empty stockpile icons
+
+  # Building team tint modifiers
+  BuildingTeamTintMul* = 0.75'f32                     ## Team color multiplier for building tint
+  BuildingTeamTintAdd* = 0.1'f32                      ## Team color additive for building tint
+  BuildingTeamTintAlpha* = 0.9'f32                    ## Building team tint alpha
+
+  # Minimap bright team color boost
+  MinimapBrightMul* = 1.2'f32                         ## Brightness multiplier for minimap team colors
+  MinimapBrightAdd* = 0.1'f32                         ## Additive brightness for minimap team colors
+
+  # Trade route target dock alpha variant
+  TradeRouteGoldTarget* = color(0.95, 0.78, 0.15, 0.35) ## Trade route gold at target dock (TradeRouteGoldTint * TargetAlpha)
+
+  # Projectile colors
+  ProjArrowColor*      = color(0.6, 0.4, 0.2, 1.0)   ## Arrow projectile (brown)
+  ProjLongbowColor*    = color(0.5, 0.3, 0.2, 1.0)   ## Longbow projectile (darker brown)
+  ProjJanissaryColor*  = color(0.9, 0.9, 0.3, 1.0)   ## Janissary projectile (yellow)
+  ProjTowerArrowColor* = color(0.6, 0.4, 0.2, 1.0)   ## Tower arrow projectile (brown)
+  ProjCastleArrowColor* = color(0.7, 0.5, 0.3, 1.0)  ## Castle arrow projectile (tan)
+  ProjMangonelColor*   = color(0.4, 0.4, 0.4, 1.0)   ## Mangonel projectile (gray)
+  ProjTrebuchetColor*  = color(0.5, 0.5, 0.5, 1.0)   ## Trebuchet projectile (dark gray)
+
+  # Debris colors
+  DebrisWoodColor*   = color(0.55, 0.35, 0.15, 1.0)  ## Wood debris (brown)
+  DebrisStoneColor*  = color(0.50, 0.50, 0.50, 1.0)  ## Stone debris (gray)
+  DebrisBrickColor*  = color(0.70, 0.40, 0.25, 1.0)  ## Brick debris (terracotta)
+
 # ---------------------------------------------------------------------------
 # Team Colors (game-specific)
 # ---------------------------------------------------------------------------
@@ -98,6 +229,11 @@ const WarmTeamPalette* = [
   color(0.870, 0.870, 0.870, 1.0),  # team 6: light gray      (#dedede)
   color(0.930, 0.560, 0.820, 1.0)   # team 7: soft pink       (#ed8fd1)
 ]
+
+proc withAlpha*(c: Color, a: float32): Color {.inline.} =
+  ## Return a copy of `c` with its alpha replaced by `a`.
+  ## Avoids the verbose `color(c.r, c.g, c.b, newAlpha)` pattern.
+  color(c.r, c.g, c.b, a)
 
 proc applyActionTint(env: Environment, pos: IVec2, tintColor: TileColor, duration: int8, tintCode: uint8) =
   if not isValidPos(pos) or env.tintLocked[pos.x][pos.y]:

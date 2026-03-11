@@ -1,27 +1,7 @@
 import
-  boxy, windy, vmath, std/os
+  boxy, windy, vmath
 
-# Silky UI renderer (optional - compile with -d:useSilky when available)
-# Note: We import silky but do NOT export it to avoid operator overload
-# conflicts (opengl/vmath). Modules that need silky procs should import
-# silky sub-modules directly (e.g., `from silky/drawing import nil`).
-when defined(useSilky):
-  import silky
-else:
-  # Stub types and methods when silky is not available
-  import pixie
-  type Silky* = ref object
-    discard
-
-  # Stub methods that do nothing - allows code to compile without silky
-  proc drawRect*(sk: Silky, pos, size: Vec2, color: ColorRGBX) = discard
-  proc drawImage*(sk: Silky, name: string, pos: Vec2, color: ColorRGBX = rgbx(255,255,255,255)) = discard
-  proc contains*(sk: Silky, name: string): bool = false
-  proc getImageSize*(sk: Silky, name: string): Vec2 = vec2(0, 0)
-  proc drawText*(sk: Silky, font, text: string, pos: Vec2, color: ColorRGBX, maxWidth: float32 = float32.high, maxHeight: float32 = float32.high): Vec2 = vec2(0, 0)
-  proc getTextSize*(sk: Silky, font, text: string): Vec2 = vec2(0, 0)
-  proc beginUI*(sk: Silky, window: Window, size: IVec2) = discard
-  proc endUI*(sk: Silky) = discard
+import pixie
 
 import common_types
 export common_types
@@ -41,6 +21,7 @@ type
     pos*: Vec2
     vel*: Vec2
     zoom*: float32 = 1.25     # preferred default zoom (start further out)
+    zoomTarget*: float32 = 1.25  # smooth zoom target (interpolated toward)
     zoomVel*: float32
     minZoom*: float32 = 1.0   # allow further zoom-out
     maxZoom*: float32 = 8.0   # reduce maximum zoom-out
@@ -55,6 +36,7 @@ type
     WeatherNone     ## No weather effects
     WeatherRain     ## Rain particles falling
     WeatherWind     ## Wind particles blowing horizontally
+    WeatherSnow     ## Snow particles drifting down
 
   Area* = ref object
     layout*: AreaLayout
@@ -70,15 +52,15 @@ type
     showObservations* = -1
     showDayNightCycle* = true  ## Whether to show day/night lighting cycle
     weatherType* = WeatherRain  ## Current weather effect (Rain, Wind, or None)
+    showUnitDebug* = false       ## Show unit class + sprite key labels above agents
 
 var
   window*: Window
   rootArea*: Area
-  bxy*: Boxy           # World rendering (sprites, terrain)
-  sk*: Silky           # UI rendering (panels, buttons, HUD) - nil when silky unavailable
+  bxy*: Boxy           # World rendering (sprites, terrain, UI)
   frame*: int
 
-  # Transform stack (replaces boxy's transform management for silky)
+  # Transform stack (parallel to boxy's transform management)
   transformMat*: Mat3 = mat3()
   transformStack*: seq[Mat3]
 
@@ -114,6 +96,12 @@ const
   CommandButtonCols* = 4       ## Buttons per row
   CommandPanelPadding* = 10    ## Internal padding
 
+  # Speed multiplier thresholds (used in footer button state checks)
+  SpeedSlow* = 0.5'f32          ## Slow-motion speed
+  SpeedFast* = 2.0'f32          ## Fast forward speed
+  SpeedFaster* = 4.0'f32        ## Faster forward speed
+  SpeedSuperMin* = 10.0'f32     ## Minimum threshold for "super" speed
+
 var
   mouseCaptured*: bool = false
   mouseCapturedPanel*: Panel = nil
@@ -121,6 +109,8 @@ var
   uiMouseCaptured*: bool = false
   minimapCaptured*: bool = false  ## Mouse is currently dragging on minimap
   playerTeam*: int = -1  ## AI takeover: -1 = observer, 0-7 = controlling that team
+  paused*: bool = false  ## Whether simulation is paused
+  speedMultiplier*: float32 = 1.0  ## Simulation speed multiplier
 
   # Day/Night cycle state
   dayNightEnabled*: bool = true              ## Whether day/night cycle is active
@@ -132,30 +122,12 @@ proc logicalMousePos*(window: Window): Vec2 =
 
 # ─── Rendering Initialization ────────────────────────────────────────────────
 
-var silkyAtlasPath* = "data/silky.atlas.png"
-var silkyAtlasJsonPath* = "data/silky.atlas.json"
-
 proc initRendering*(dataDir: string = "data") =
-  ## Initialize both renderers: boxy for world rendering, silky for UI.
+  ## Initialize the boxy renderer for world and UI rendering.
   ## Call this after window creation but before the main loop.
-  ##
-  ## Note: Silky atlas must be pre-built. If atlas files don't exist,
-  ## only boxy will be initialized and sk will remain nil.
   bxy = newBoxy()
 
-  when defined(useSilky):
-    let atlasPath = dataDir / "silky.atlas.png"
-    let jsonPath = dataDir / "silky.atlas.json"
-    if fileExists(atlasPath) and fileExists(jsonPath):
-      sk = newSilky(atlasPath, jsonPath)
-    else:
-      # Atlas not yet built - silky features will be unavailable
-      discard
-  else:
-    # Silky not compiled in - sk remains nil
-    discard
-
-# ─── Transform Stack (for silky UI rendering) ────────────────────────────────
+# ─── Transform Stack ─────────────────────────────────────────────────────────
 
 proc saveTransform*() =
   ## Push the current transform onto the stack.
@@ -194,17 +166,11 @@ proc applyTransform*(pos: Vec2): Vec2 =
 # ─── Frame Lifecycle ─────────────────────────────────────────────────────────
 
 proc beginFrame*(size: IVec2) =
-  ## Begin a new frame for both renderers.
+  ## Begin a new frame for the boxy renderer.
   bxy.beginFrame(size)
-  when defined(useSilky):
-    if not sk.isNil:
-      sk.beginUI(window, size)
 
 proc endFrame*() =
-  ## End the current frame for both renderers.
-  when defined(useSilky):
-    if not sk.isNil:
-      sk.endUI()
+  ## End the current frame for the boxy renderer.
   bxy.endFrame()
 
 # Viewport culling types and functions
@@ -390,4 +356,4 @@ proc applyAmbient*(baseR, baseG, baseB, baseI: float32, ambient: AmbientLight): 
     i: baseI * ambient.intensity
   )
 
-# Note: Transform Stack procs are defined above in section "Transform Stack (for silky UI rendering)"
+# Note: Transform Stack procs are defined above in section "Transform Stack"

@@ -29,7 +29,7 @@ All flags are zero-cost when disabled (instrumentation code is compiled out enti
 Enables detailed timing breakdown of each simulation step across 11 subsystems (actionTint, shields, preDeaths, actions, things, tumors, tumorDamage, auras, popRespawn, survival, tintObs).
 
 ```bash
-nim r -d:stepTiming -d:release --path:src src/tribal_village.nim
+nim r -d:stepTiming -d:release --path:src tribal_village.nim
 ```
 
 | Environment Variable | Default | Description |
@@ -44,7 +44,7 @@ When `TV_AI_TIMING=1` is set alongside `-d:stepTiming`, reports per-agent decisi
 
 ```bash
 TV_AI_TIMING=1 TV_AI_TIMING_INTERVAL=50 \
-  nim r -d:stepTiming -d:release --path:src src/tribal_village.nim
+  nim r -d:stepTiming -d:release --path:src tribal_village.nim
 ```
 
 | Environment Variable | Default | Description |

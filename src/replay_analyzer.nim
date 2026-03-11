@@ -355,8 +355,8 @@ proc analyzeReplayBatch*(dir: string, maxFiles: int = MaxReplaysPerPass): seq[Re
   for i in 0 ..< count:
     try:
       result.add analyzeReplayFile(files[i])
-    except CatchableError:
-      discard
+    except CatchableError as e:
+      echo "Warning: Failed to analyze " & files[i] & ": " & e.msg
 
 proc applyBatchFeedback*(catalog: var RoleCatalog, analyses: seq[ReplayAnalysis]) =
   ## Apply fitness feedback from multiple replay analyses.

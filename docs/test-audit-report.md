@@ -184,7 +184,7 @@ Some functionality is tested in multiple places with slight variations:
 
 6. **Consider Property-Based Testing** - For balance-sensitive tests, consider using property-based testing that's more robust to parameter changes
 
-7. **Add Test Coverage Metrics** - Implement `scripts/coverage_report.nim` to track coverage over time
+7. **Add Test Coverage Metrics** - Implement a coverage tracking tool to measure test coverage over time
 
 ---
 

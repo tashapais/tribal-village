@@ -560,7 +560,10 @@ proc killAgent(env: Environment, victim: Thing, attacker: Thing = nil) =
   if lanternCount > 0: setInv(victim, ItemLantern, 0)
   if relicCount > 0: setInv(victim, ItemRelic, 0)
   let dropInv = victim.inventory
-  let corpse = Thing(kind: (if dropInv.len > 0: Corpse else: Skeleton), pos: deathPos)
+  # Use object pool for Corpse/Skeleton (both are PoolableKinds)
+  let corpseKind = if dropInv.len > 0: Corpse else: Skeleton
+  let corpse = acquireThing(env, corpseKind)
+  corpse.pos = deathPos
   corpse.inventory = dropInv
   env.add(corpse)
 
@@ -573,9 +576,6 @@ proc killAgent(env: Environment, victim: Thing, attacker: Thing = nil) =
   else:
     vec2(0.0, 0.0)  # No direction if no attacker (falls in place)
   env.spawnRagdoll(deathPos, ragdollDir, victim.unitClass, getTeamId(victim))
-
-  # Trigger screen shake for combat impact
-  triggerScreenShake()
 
   if lanternCount > 0 or relicCount > 0:
     let totalNeeded = lanternCount + relicCount
@@ -653,15 +653,20 @@ proc applyAgentDamage(env: Environment, target: Thing, amount: int, attacker: Th
         remaining = max(1, (remaining + 1) div 2)
         break
 
-  # Apply Blacksmith armor upgrade bonus for defender
+  # Apply combined armor reduction (blacksmith + inventory) as a single pool
+  # so neither source eclipses the other
+  var totalArmor = 0
   if teamId >= 0 and teamId < MapRoomObjectsTeams:
-    let armorBonus = env.getBlacksmithArmorBonus(teamId, target.unitClass)
-    remaining = max(0, remaining - armorBonus)
+    totalArmor += env.getBlacksmithArmorBonus(teamId, target.unitClass)
+  totalArmor += target.inventoryArmor
 
-  if target.inventoryArmor > 0:
-    let absorbed = min(remaining, target.inventoryArmor)
-    target.inventoryArmor = max(0, target.inventoryArmor - absorbed)
+  if totalArmor > 0:
+    let absorbed = min(remaining, totalArmor)
     remaining -= absorbed
+    # Deplete inventory armor by whatever portion it contributed
+    if target.inventoryArmor > 0:
+      let inventoryUsed = min(target.inventoryArmor, absorbed)
+      target.inventoryArmor = target.inventoryArmor - inventoryUsed
 
   # Guarantee minimum 1 damage (AoE2 rule: attacks always deal at least 1)
   remaining = max(1, remaining)

@@ -1,8 +1,8 @@
 # Economy, Stockpiles, and Respawning
 
-Date: 2026-01-28
+Date: 2026-02-17
 Owner: Docs / Systems
-Status: Draft
+Status: Reviewed
 
 ## Overview
 The economy is split into **agent inventory** and **team stockpiles**. Agents gather and
@@ -92,7 +92,7 @@ Constants:
 ## Population Cap
 Each step computes team pop-cap from buildings (`buildingPopCap`):
 - Houses contribute `HousePopCap` (4) each.
-- Town centers contribute `TownCenterPopCap` (currently 0).
+- Town centers contribute `TownCenterPopCap` (currently 5).
 - Cap is clamped to `MapAgentsPerTeam` (125).
 
 Pop-cap gates:

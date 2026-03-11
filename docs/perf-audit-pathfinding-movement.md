@@ -2,7 +2,7 @@
 
 **Bead:** tv-69rq3n
 **Author:** cheedo (polecat)
-**Date:** 2026-02-11
+**Date:** 2026-02-17 (updated)
 
 ## Executive Summary
 
@@ -10,7 +10,7 @@ The pathfinding and movement subsystem is **well-optimized** with several carefu
 
 **Key findings:**
 - Pathfinding is O(n log n) where n ≤ 250, effectively bounded constant time per call
-- Short-distance movement (<6 tiles) uses O(1) greedy heuristic, bypassing A*
+- Short-distance movement (<4 tiles) uses O(1) greedy heuristic, bypassing A*
 - Cache invalidation is O(1) via generation counters (avoids O(58,752) array clears)
 - Spatial index enables O(1) lookups for lantern spacing checks
 
@@ -30,8 +30,8 @@ The pathfinding and movement subsystem is **well-optimized** with several carefu
 ```
 decideAction() → [role-specific logic] → moveTo() → getMoveTowards() or findPath()
                                            │
-                                           ├── Short distance (<6 tiles): greedy O(1)
-                                           └── Long distance (≥6 tiles): A* O(n log n)
+                                           ├── Short distance (<4 tiles): greedy O(1)
+                                           └── Long distance (≥4 tiles): A* O(n log n)
 ```
 
 ### Key Files
@@ -47,17 +47,17 @@ decideAction() → [role-specific logic] → moveTo() → getMoveTowards() or fi
 
 ### 1. A* Algorithm (`findPath`)
 
-**Location:** `ai_core.nim:1052-1198`
+**Location:** `ai_core.nim:1130-1276`
 
 **Complexity:**
 - Time: O(n log n) where n ≤ 250 (hard cap)
 - Space: O(1) amortized via pre-allocated PathfindingCache
 
 **Performance optimizations:**
-1. **Generation counter pattern** (line 1076): Invalidates stale cache entries without clearing 58,752-element arrays
-2. **Binary heap priority queue** (line 1132): O(log n) push/pop operations
-3. **Hard exploration cap** (line 1127): Returns empty path after 250 nodes to bound worst-case
-4. **Multi-goal support** (lines 1080-1091): Targets passable neighbors when destination blocked
+1. **Generation counter pattern** (line 1154): Invalidates stale cache entries without clearing 58,752-element arrays
+2. **Binary heap priority queue** (line 1210): O(log n) push/pop operations
+3. **Hard exploration cap** (line 1202): Returns empty path after 250 nodes to bound worst-case
+4. **Multi-goal support** (lines 1158-1169): Targets passable neighbors when destination blocked
 
 ```nim
 # Generation counter pattern - O(1) vs O(MapWidth * MapHeight)
@@ -68,12 +68,12 @@ let currentGen = controller.pathCache.generation
 
 ### 2. Greedy Movement (`getMoveTowards`)
 
-**Location:** `ai_core.nim:971-1050`
+**Location:** `ai_core.nim:1049-1128`
 
 **Complexity:** O(8) = O(1) - always tests exactly 8 directions
 
 **Used when:**
-- Target distance < 6 tiles (Chebyshev)
+- Target distance < 4 tiles (Chebyshev)
 - Need immediate single-step movement decision
 
 **Algorithm:**
@@ -84,17 +84,17 @@ let currentGen = controller.pathCache.generation
 
 ### 3. Hybrid Strategy (`moveTo`)
 
-**Location:** `ai_core.nim:1302-1405`
+**Location:** `ai_core.nim:1380-1475`
 
 **Strategy selection:**
 ```nim
-let usesAstar = chebyshevDist(agent.pos, targetPos) >= 6 or stuck
+let usesAstar = chebyshevDist(agent.pos, targetPos) >= 4 or stuck
 ```
 
 | Condition | Strategy |
 |-----------|----------|
-| Distance < 6, not stuck | Greedy getMoveTowards() |
-| Distance ≥ 6 | A* findPath() |
+| Distance < 4, not stuck | Greedy getMoveTowards() |
+| Distance ≥ 4 | A* findPath() |
 | Stuck (oscillating) | A* with spiral fallback |
 
 **Stuck detection:** Tracks last 6 positions, triggers recovery when ≤2 unique positions (oscillating between tiles)
@@ -120,7 +120,7 @@ PathfindingCache* = object
 
 ## Movement Execution
 
-### step.nim Movement Handler (lines 451-662)
+### step.nim Movement Handler (lines 258-478)
 
 **Per-move operations:**
 1. Movement debt check (terrain penalties)

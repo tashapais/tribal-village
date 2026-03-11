@@ -32,13 +32,20 @@ Notes:
 - `orient=unit` uses unit directions; `orient=edge` uses cliff edge directions.
 
 ## Orientation Sets
-Defined in `scripts/generate_assets.py`:
+Defined in `scripts/asset_prompt_rows.py` (consumed by `scripts/generate_assets.py`):
 - `unit`: n, s, e, w, ne, nw, se, sw
 - `edge`: ew, ew_s, ns, ns_w
 
 The unit orientation text is explicit about left/right facing (for example, `se` is
 "looking left" and `sw` is "looking right") to avoid flipped sprites. East/west
 mirroring is also supported for stable prompts via `FLIP_ORIENTATIONS`.
+
+Cliff-specific constants and automatic cliff variant derivation are centralized in
+`scripts/cliff_assets.py` (used by `generate_assets.py`, preview rendering, and audit scripts).
+Shared transform operations live in `scripts/sprite_transforms.py`, and shared repo/data
+path resolution for script entrypoints lives in `scripts/script_paths.py`.
+Prompt/orientation row parsing lives in `scripts/asset_prompt_rows.py`, and image background
+key/crop postprocessing helpers live in `scripts/asset_postprocess.py`.
 
 ## Generation Commands
 Base assets:
@@ -54,7 +61,7 @@ Postprocess only (reuse `data/tmp`):
 - `python scripts/generate_assets.py --postprocess-only --postprocess-tol 30`
 
 ## Postprocessing Pipeline
-`apply_postprocess` in `scripts/generate_assets.py` performs:
+`apply_postprocess` in `scripts/asset_postprocess.py` performs:
 1. Background removal (standard flood-fill or purple key).
 2. Content crop using alpha connected components.
 3. Resize to the requested square size.

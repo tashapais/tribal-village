@@ -310,3 +310,83 @@ proc getReservationPos*(teamId: int, agentId: int): IVec2 =
     if state.reservations[i].agentId == agentId.int32:
       return state.reservations[i].pos
   ivec2(-1, -1)
+
+# ============================================================================
+# Resource Patch Tracking (AoE-style gathering clusters)
+# ============================================================================
+# Tracks gatherer assignment counts around drop-off buildings so that villagers
+# prefer undermanned patches and spread out evenly across resource sites.
+# A "patch" is defined as the area around a drop-off building (LumberCamp,
+# MiningCamp, Quarry, Granary) or TownCenter.
+
+type
+  ResourcePatchKind* = enum
+    PatchWood, PatchGold, PatchStone, PatchFood
+
+proc countGatherersNearPos*(env: Environment, teamId: int, pos: IVec2, radius: int): int =
+  ## Count alive gatherer agents assigned to gather near a position.
+  ## Uses reservation positions to determine assignment.
+  if not validTeamId(teamId):
+    return 0
+  let rState = addr resState(teamId)
+  for i in 0 ..< rState.count:
+    let res = rState.reservations[i]
+    let dx = abs(res.pos.x - pos.x)
+    let dy = abs(res.pos.y - pos.y)
+    if max(dx, dy) <= radius.int32:
+      inc result
+
+proc findNearestDropoffForResource*(env: Environment, pos: IVec2, teamId: int,
+                                     patchKind: ResourcePatchKind): Thing =
+  ## Find the nearest friendly drop-off building appropriate for a resource type.
+  ## Returns nil if no drop-off found within search radius.
+  case patchKind
+  of PatchWood:
+    result = findNearestFriendlyThingSpatial(env, pos, teamId, LumberCamp, DropoffProximityRadius)
+    if isNil(result):
+      result = findNearestFriendlyThingSpatial(env, pos, teamId, TownCenter, DropoffProximityRadius)
+  of PatchGold:
+    result = findNearestFriendlyThingSpatial(env, pos, teamId, MiningCamp, DropoffProximityRadius)
+    if isNil(result):
+      result = findNearestFriendlyThingSpatial(env, pos, teamId, TownCenter, DropoffProximityRadius)
+  of PatchStone:
+    result = findNearestFriendlyThingSpatial(env, pos, teamId, Quarry, DropoffProximityRadius)
+    if isNil(result):
+      result = findNearestFriendlyThingSpatial(env, pos, teamId, TownCenter, DropoffProximityRadius)
+  of PatchFood:
+    result = findNearestFriendlyThingSpatial(env, pos, teamId, Granary, DropoffProximityRadius)
+    if isNil(result):
+      result = findNearestFriendlyThingSpatial(env, pos, teamId, Mill, DropoffProximityRadius)
+    if isNil(result):
+      result = findNearestFriendlyThingSpatial(env, pos, teamId, TownCenter, DropoffProximityRadius)
+
+proc findUnderstaffedPatchPos*(env: Environment, agentPos: IVec2, teamId: int,
+                                patchKind: ResourcePatchKind): IVec2 =
+  ## Find the position of the nearest drop-off building with an understaffed patch.
+  ## Returns (-1,-1) if no understaffed patch found.
+  ## Used for idle villager auto-assignment.
+  result = ivec2(-1, -1)
+  var bestDist = int.high
+  # Check each relevant building type for understaffed patches
+  template checkKind(buildingKind: ThingKind) =
+    let building = findNearestFriendlyThingSpatial(env, agentPos, teamId, buildingKind, 50)
+    if not isNil(building):
+      let gatherers = countGatherersNearPos(env, teamId, building.pos, PatchRadius)
+      if gatherers < MaxGatherersPerPatch:
+        let dist = int(max(abs(agentPos.x - building.pos.x), abs(agentPos.y - building.pos.y)))
+        if dist < bestDist:
+          bestDist = dist
+          result = building.pos
+
+  case patchKind
+  of PatchWood:
+    checkKind(LumberCamp)
+  of PatchGold:
+    checkKind(MiningCamp)
+  of PatchStone:
+    checkKind(Quarry)
+  of PatchFood:
+    checkKind(Granary)
+    checkKind(Mill)
+  # Also check TownCenter as fallback
+  checkKind(TownCenter)

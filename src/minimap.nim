@@ -1,17 +1,10 @@
 ## Minimap rendering: bird's-eye terrain view with units, buildings, and viewport rect.
 ##
-## Rendering strategy (dual boxy+silky):
-## - Border/frame: silky (clean UI rect)
-## - Map content: boxy (dynamic texture updates)
-## - Viewport indicator: silky (clean UI lines)
+## All rendering uses boxy (dynamic texture for map content, drawRect for UI elements).
 
 import
   boxy, pixie, vmath, windy, chroma,
   common, constants, environment, semantic
-
-when defined(useSilky):
-  # Use 'from import nil' to avoid vmath operator conflicts
-  import silky
 
 # ---------------------------------------------------------------------------
 # State
@@ -25,25 +18,45 @@ var
   minimapBaseImage: Image  # Cached terrain layer (static between map regens)
 
 # ---------------------------------------------------------------------------
+# Minimap Terrain Colors (ColorRGBX for direct pixel writes)
+# ---------------------------------------------------------------------------
+
+const
+  MinimapWater        = rgbx(25, 50, 120, 255)   ## Deep water
+  MinimapShallowWater = rgbx(60, 110, 160, 255)  ## Shallow water
+  MinimapBridge       = rgbx(140, 110, 70, 255)  ## Bridge
+  MinimapFertile      = rgbx(50, 100, 30, 255)   ## Fertile land
+  MinimapRoad         = rgbx(140, 130, 110, 255) ## Road
+  MinimapGrass        = rgbx(60, 120, 40, 255)   ## Grass
+  MinimapDune         = rgbx(190, 170, 100, 255) ## Dune
+  MinimapSand         = rgbx(180, 160, 90, 255)  ## Sand
+  MinimapSnow         = rgbx(220, 230, 240, 255) ## Snow
+  MinimapMud          = rgbx(90, 70, 50, 255)    ## Mud
+  MinimapMountain     = rgbx(80, 75, 70, 255)    ## Mountain
+  MinimapRamp         = rgbx(130, 120, 100, 255) ## Ramp
+  MinimapEmpty        = rgbx(50, 80, 40, 255)    ## Empty/default
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 proc terrainColor(t: TerrainType): ColorRGBX =
   case t
-  of Water:        rgbx(25, 50, 120, 255)
-  of ShallowWater: rgbx(60, 110, 160, 255)
-  of Bridge:       rgbx(140, 110, 70, 255)
-  of Fertile:      rgbx(50, 100, 30, 255)
-  of Road:         rgbx(140, 130, 110, 255)
-  of Grass:        rgbx(60, 120, 40, 255)
-  of Dune:         rgbx(190, 170, 100, 255)
-  of Sand:         rgbx(180, 160, 90, 255)
-  of Snow:         rgbx(220, 230, 240, 255)
-  of Mud:          rgbx(90, 70, 50, 255)
+  of Water:        MinimapWater
+  of ShallowWater: MinimapShallowWater
+  of Bridge:       MinimapBridge
+  of Fertile:      MinimapFertile
+  of Road:         MinimapRoad
+  of Grass:        MinimapGrass
+  of Dune:         MinimapDune
+  of Sand:         MinimapSand
+  of Snow:         MinimapSnow
+  of Mud:          MinimapMud
+  of Mountain:     MinimapMountain
   of RampUpN, RampUpS, RampUpW, RampUpE,
      RampDownN, RampDownS, RampDownW, RampDownE:
-                   rgbx(130, 120, 100, 255)
-  of Empty:        rgbx(50, 80, 40, 255)
+                   MinimapRamp
+  of Empty:        MinimapEmpty
 
 proc rebuildMinimapBase() =
   let mmW = MinimapSize
@@ -119,7 +132,7 @@ proc drawMinimap*(panelRect: IRect, cameraPos: Vec2, zoom: float32) =
         let c = if teamId >= 0 and teamId < env.teamColors.len:
           env.teamColors[teamId]
         else:
-          color(0.7, 0.7, 0.7, 1.0)
+          NeutralGrayMinimap
         img.unsafe[px, py] = rgbx(
           uint8(clamp(c.r * 255, 0, 255)),
           uint8(clamp(c.g * 255, 0, 255)),
@@ -150,21 +163,13 @@ proc drawMinimap*(panelRect: IRect, cameraPos: Vec2, zoom: float32) =
 
     bxy.addImage(minimapImageKey, img)
 
-  # Draw minimap border (silky for clean UI) and image (boxy for dynamic content)
+  # Draw minimap border and map image
   let mmRect = minimapRect(panelRect)
   let borderPos = vec2(mmRect.x - MinimapBorderWidth, mmRect.y - MinimapBorderWidth)
   let borderSize = vec2(mmRect.w + MinimapBorderExpand, mmRect.h + MinimapBorderExpand)
 
-  when defined(useSilky):
-    let borderColor = rgbx(38, 38, 38, 242)  # color(0.15, 0.15, 0.15, 0.95)
-    if not sk.isNil:
-      sk.drawRect( borderPos, borderSize, borderColor)
-    else:
-      bxy.drawRect(rect = Rect(x: borderPos.x, y: borderPos.y, w: borderSize.x, h: borderSize.y),
-                   color = color(0.15, 0.15, 0.15, 0.95))
-  else:
-    bxy.drawRect(rect = Rect(x: borderPos.x, y: borderPos.y, w: borderSize.x, h: borderSize.y),
-                 color = color(0.15, 0.15, 0.15, 0.95))
+  bxy.drawRect(rect = Rect(x: borderPos.x, y: borderPos.y, w: borderSize.x, h: borderSize.y),
+               color = UiMinimapBorderDark)
 
   # Map content rendered with boxy (dynamic texture)
   bxy.drawImage(minimapImageKey, vec2(mmRect.x, mmRect.y))
@@ -205,37 +210,15 @@ proc drawMinimap*(panelRect: IRect, cameraPos: Vec2, zoom: float32) =
   if clRight > clLeft and clBottom > clTop:
     let lineW = MinimapViewportLineWidth
 
-    # Draw viewport indicator (silky for clean UI lines when available, boxy fallback)
-    when defined(useSilky):
-      let vpColorRgbx = rgbx(255, 255, 255, uint8(MinimapViewportAlpha * 255))
-      if not sk.isNil:
-        # Top
-        sk.drawRect( vec2(clLeft, clTop), vec2(clRight - clLeft, lineW), vpColorRgbx)
-        # Bottom
-        sk.drawRect( vec2(clLeft, clBottom - lineW), vec2(clRight - clLeft, lineW), vpColorRgbx)
-        # Left
-        sk.drawRect( vec2(clLeft, clTop), vec2(lineW, clBottom - clTop), vpColorRgbx)
-        # Right
-        sk.drawRect( vec2(clRight - lineW, clTop), vec2(lineW, clBottom - clTop), vpColorRgbx)
-      else:
-        let vpColor = color(1, 1, 1, MinimapViewportAlpha)
-        bxy.drawRect(rect = Rect(x: clLeft, y: clTop, w: clRight - clLeft, h: lineW), color = vpColor)
-        bxy.drawRect(rect = Rect(x: clLeft, y: clBottom - lineW, w: clRight - clLeft, h: lineW), color = vpColor)
-        bxy.drawRect(rect = Rect(x: clLeft, y: clTop, w: lineW, h: clBottom - clTop), color = vpColor)
-        bxy.drawRect(rect = Rect(x: clRight - lineW, y: clTop, w: lineW, h: clBottom - clTop), color = vpColor)
-    else:
-      let vpColor = color(1, 1, 1, MinimapViewportAlpha)
-      # Top
-      bxy.drawRect(rect = Rect(x: clLeft, y: clTop,
-                   w: clRight - clLeft, h: lineW), color = vpColor)
-      # Bottom
-      bxy.drawRect(rect = Rect(x: clLeft, y: clBottom - lineW,
-                   w: clRight - clLeft, h: lineW), color = vpColor)
-      # Left
-      bxy.drawRect(rect = Rect(x: clLeft, y: clTop,
-                   w: lineW, h: clBottom - clTop), color = vpColor)
-      # Right
-      bxy.drawRect(rect = Rect(x: clRight - lineW, y: clTop,
-                   w: lineW, h: clBottom - clTop), color = vpColor)
+    # Draw viewport indicator lines
+    let vpColor = withAlpha(UiViewportOutline, MinimapViewportAlpha)
+    bxy.drawRect(rect = Rect(x: clLeft, y: clTop,
+                 w: clRight - clLeft, h: lineW), color = vpColor)
+    bxy.drawRect(rect = Rect(x: clLeft, y: clBottom - lineW,
+                 w: clRight - clLeft, h: lineW), color = vpColor)
+    bxy.drawRect(rect = Rect(x: clLeft, y: clTop,
+                 w: lineW, h: clBottom - clTop), color = vpColor)
+    bxy.drawRect(rect = Rect(x: clRight - lineW, y: clTop,
+                 w: lineW, h: clBottom - clTop), color = vpColor)
 
   popSemanticContext()

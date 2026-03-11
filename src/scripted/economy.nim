@@ -171,10 +171,18 @@ proc detectBottleneck*(controller: Controller, env: Environment, teamId: int): B
   if teamId < 0 or teamId >= MapRoomObjectsTeams:
     return NoBottleneck
 
+  # Phase-aware critical thresholds: early game is more sensitive to food/wood shortages
+  let gameProgress = if env.config.maxSteps > 0:
+    env.currentStep.float / env.config.maxSteps.float
+  else:
+    0.5
+  let critFood = if gameProgress < EarlyGameThreshold: CriticalFoodLevel + 2 else: CriticalFoodLevel
+  let critWood = if gameProgress < EarlyGameThreshold: CriticalWoodLevel + 3 else: CriticalWoodLevel
+
   # Check critical resource levels first (cheap lookups before expensive iteration)
-  if env.stockpileCount(teamId, ResourceFood) < CriticalFoodLevel:
+  if env.stockpileCount(teamId, ResourceFood) < critFood:
     return FoodCritical
-  if env.stockpileCount(teamId, ResourceWood) < CriticalWoodLevel:
+  if env.stockpileCount(teamId, ResourceWood) < critWood:
     return WoodCritical
 
   # Single pass: count workers and detect enemies simultaneously
@@ -244,8 +252,8 @@ proc resetEconomy*() =
 
 const
   TributeCheckInterval* = 50     ## Steps between tribute checks
-  TributeSurplusThreshold* = 40  ## Must have at least this much of a resource to consider tributing
-  TributeDeficitThreshold* = 5   ## Ally must have less than this to receive tribute
+  TributeSurplusThreshold* = 8   ## Must have at least this much of a resource to consider tributing
+  TributeDeficitThreshold* = 3   ## Ally must have less than this to receive tribute
   TributeAmountFraction* = 0.25  ## Send 25% of surplus above threshold
 
 proc evaluateTribute*(env: Environment, teamId: int) =
@@ -258,7 +266,7 @@ proc evaluateTribute*(env: Environment, teamId: int) =
   # Check each resource type (except ResourceNone and ResourceWater)
   for res in [ResourceFood, ResourceWood, ResourceGold, ResourceStone]:
     let ownStock = env.stockpileCount(teamId, res)
-    if ownStock < TributeSurplusThreshold:
+    if ownStock <= TributeSurplusThreshold:
       continue  # Not enough surplus to tribute
 
     # Find a team in deficit for this resource
@@ -267,8 +275,7 @@ proc evaluateTribute*(env: Environment, teamId: int) =
     for otherTeam in 0 ..< MapRoomObjectsTeams:
       if otherTeam == teamId:
         continue
-      if not env.areAllied(teamId, otherTeam):
-        continue  # Only tribute allied teams
+      # Tribute to any team in deficit (allies preferred if alliances exist)
       let otherStock = env.stockpileCount(otherTeam, res)
       if otherStock < lowestStock:
         lowestStock = otherStock

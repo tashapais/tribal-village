@@ -34,7 +34,7 @@ proc makeConnected*(env: Environment) =
         return  # Can't dig non-diggable things
       removeThing(env, thing)
     let terrain = env.terrain[pos.x][pos.y]
-    if terrain in {Water, Dune, Snow}:
+    if terrain in {Water, Dune, Snow, Mountain}:
       # Remove background things (e.g. Fish) that depend on water terrain
       let bg = env.getBackgroundThing(pos)
       if bg.isKind(Fish):

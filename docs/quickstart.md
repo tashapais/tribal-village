@@ -66,7 +66,6 @@ make test-settlement   # Run settlement behavior tests
 make audit-settlement  # Audit settlement expansion metrics
 make benchmark      # Measure steps/second with perf regression instrumentation
 make clean          # Remove build artifacts
-make install-hooks  # Install git hooks for development
 ```
 
 ### Basic Compilation
@@ -74,13 +73,13 @@ make install-hooks  # Install git hooks for development
 Compile and run with release optimizations:
 
 ```bash
-nim r -d:release --path:src src/tribal_village.nim
+nim r -d:release --path:src tribal_village.nim
 ```
 
 Or compile only:
 
 ```bash
-nim c -d:release --path:src src/tribal_village.nim
+nim c -d:release --path:src tribal_village.nim
 ```
 
 ### With Evolution Enabled
@@ -88,15 +87,7 @@ nim c -d:release --path:src src/tribal_village.nim
 The AI evolution layer is disabled by default. To enable:
 
 ```bash
-nim r -d:release -d:enableEvolution --path:src src/tribal_village.nim
-```
-
-### With Profiling (nimprof)
-
-For low-level CPU profiling:
-
-```bash
-nim r --nimcache:./nimcache --profiler:on --stackTrace:on scripts/profile_env.nim
+nim r -d:release -d:enableEvolution --path:src tribal_village.nim
 ```
 
 ### With Step Timing
@@ -104,51 +95,17 @@ nim r --nimcache:./nimcache --profiler:on --stackTrace:on scripts/profile_env.ni
 For per-step timing breakdown (useful for debugging performance):
 
 ```bash
-nim r -d:stepTiming -d:release --path:src src/tribal_village.nim
+nim r -d:stepTiming -d:release --path:src tribal_village.nim
 ```
 
 Set environment variables to control timing output:
 
 ```bash
 TV_STEP_TIMING=100 TV_STEP_TIMING_WINDOW=50 \
-  nim r -d:stepTiming -d:release --path:src src/tribal_village.nim
+  nim r -d:stepTiming -d:release --path:src tribal_village.nim
 ```
 
 ## Running Headless (No Graphics)
-
-### Profile AI Script
-
-Run the built-in AI without rendering to measure performance:
-
-```bash
-nim r -d:release --path:src scripts/profile_ai.nim
-```
-
-With custom parameters:
-
-```bash
-TV_PROFILE_STEPS=3000 nim r -d:release --path:src scripts/profile_ai.nim
-TV_PROFILE_STEPS=3000 TV_PROFILE_REPORT_EVERY=500 TV_PROFILE_SEED=42 \
-  nim r -d:release --path:src scripts/profile_ai.nim
-```
-
-### Profile Environment Script
-
-For nimprof CPU profiling with randomized actions:
-
-```bash
-nim r --nimcache:./nimcache --profiler:on --stackTrace:on scripts/profile_env.nim
-```
-
-### Profile Roles Script
-
-For per-role action tracking and success rates:
-
-```bash
-nim r -d:release --path:src scripts/profile_roles.nim
-TV_PROFILE_STEPS=3000 TV_PROFILE_REPORT_EVERY=500 \
-  nim r -d:release --path:src scripts/profile_roles.nim
-```
 
 ### Headless via CLI
 
@@ -165,7 +122,7 @@ tribal-village play --render ansi --steps 128
 The graphical viewer runs via:
 
 ```bash
-nim r -d:release --path:src src/tribal_village.nim
+nim r -d:release --path:src tribal_village.nim
 ```
 
 Or through the Python CLI:
@@ -227,14 +184,14 @@ tribal-village play
 For frame-by-frame render timing:
 
 ```bash
-nim r -d:renderTiming -d:release --path:src src/tribal_village.nim
+nim r -d:renderTiming -d:release --path:src tribal_village.nim
 ```
 
 With environment variable control:
 
 ```bash
 TV_RENDER_TIMING=0 TV_RENDER_TIMING_WINDOW=100 TV_RENDER_TIMING_EVERY=10 \
-  nim r -d:renderTiming -d:release --path:src src/tribal_village.nim
+  nim r -d:renderTiming -d:release --path:src tribal_village.nim
 ```
 
 ## Running Tests
@@ -267,7 +224,7 @@ nim r --path:src tests/integration_behaviors.nim
 
 2. Smoke test (15s timeout):
    ```bash
-   timeout 15s nim r -d:release --path:src src/tribal_village.nim
+   timeout 15s nim r -d:release --path:src tribal_village.nim
    ```
 
 3. Test suite:
@@ -343,7 +300,7 @@ nim r --path:src tests/integration_behaviors.nim
 ```bash
 # Play with graphics
 tribal-village play
-nim r -d:release --path:src src/tribal_village.nim
+nim r -d:release --path:src tribal_village.nim
 
 # Headless smoke test
 tribal-village play --render ansi --steps 128
@@ -353,9 +310,6 @@ make check
 
 # Run all tests
 make test
-
-# Profile AI for 3000 steps
-TV_PROFILE_STEPS=3000 nim r -d:release --path:src scripts/profile_ai.nim
 
 # Benchmark with perf regression detection
 make benchmark
@@ -413,7 +367,7 @@ python scripts/generate_assets.py
 2. Enable step timing to see progress:
    ```bash
    TV_STEP_TIMING=0 TV_STEP_TIMING_WINDOW=100 \
-     nim r -d:stepTiming -d:release --path:src src/tribal_village.nim
+     nim r -d:stepTiming -d:release --path:src tribal_village.nim
    ```
 
 3. Verify OpenGL is available on your system.
@@ -422,5 +376,5 @@ python scripts/generate_assets.py
 
 - See `docs/README.md` for the full documentation index
 - See `docs/cli_and_debugging.md` for detailed CLI usage
-- See `docs/ai_profiling.md` for AI performance analysis
+- See `docs/performance_optimization_roadmap.md` for performance analysis
 - See `docs/training_and_replays.md` for ML training setup

@@ -175,6 +175,8 @@ type
     # Economy priority override: force gatherer to collect specific resource
     gathererPriorityResource*: StockpileResource  # Resource to prioritize
     gathererPriorityActive*: bool                 # Whether override is active
+    # Rally grouping state: units wait at rally point for others to arrive
+    rallyArrivalStep*: int  # Step when unit arrived at rally point (0 = not waiting)
     # Command queue for shift-queue functionality (AoE2-style waypoint queuing)
     commandQueue*: array[MaxCommandQueueSize, QueuedCommand]  # Queued commands
     commandQueueCount*: int                       # Number of commands in queue
@@ -521,7 +523,7 @@ type
     shouldTerminate*: proc(controller: Controller, env: Environment, agent: Thing,
                            agentId: int, state: var AgentState): bool
     act*: proc(controller: Controller, env: Environment, agent: Thing,
-               agentId: int, state: var AgentState): uint8
+               agentId: int, state: var AgentState): uint16
     interruptible*: bool
 
 proc optionsAlwaysCanStart*(controller: Controller, env: Environment, agent: Thing,
@@ -536,9 +538,13 @@ template resetActiveOption(state: var AgentState) =
   state.activeOptionId = -1
   state.activeOptionTicks = 0
 
+template resetActiveOptionKeepTicks(state: var AgentState) =
+  ## Reset the active option but preserve tick count for idle detection.
+  state.activeOptionId = -1
+
 proc runOptions*(controller: Controller, env: Environment, agent: Thing,
                  agentId: int, state: var AgentState,
-                 roleOptions: openArray[OptionDef]): uint8 =
+                 roleOptions: openArray[OptionDef]): uint16 =
   ## Execute the RL-style options framework.
   ## Handles active option continuation, preemption by higher-priority options,
   ## and scanning for new options when none is active.
@@ -555,27 +561,30 @@ proc runOptions*(controller: Controller, env: Environment, agent: Thing,
     inc state.activeOptionTicks
     let action = roleOptions[state.activeOptionId].act(
       controller, env, agent, agentId, state)
-    if action != 0'u8:
+    if action != 0'u16:
       if roleOptions[state.activeOptionId].shouldTerminate(
           controller, env, agent, agentId, state):
         resetActiveOption(state)
       return action
-    resetActiveOption(state)
+    # action==0: option produced no movement. Reset option ID so scan runs,
+    # but preserve ticks so idle detection (IdleAutoAssignSteps) can trigger.
+    resetActiveOptionKeepTicks(state)
 
   # Otherwise, scan options in priority order and use the first that acts.
   for i, opt in roleOptions:
     if not opt.canStart(controller, env, agent, agentId, state):
       continue
     state.activeOptionId = i
-    state.activeOptionTicks = 1
+    state.activeOptionTicks = max(state.activeOptionTicks, 1)
     let action = opt.act(controller, env, agent, agentId, state)
-    if action != 0'u8:
+    if action != 0'u16:
       if opt.shouldTerminate(controller, env, agent, agentId, state):
         resetActiveOption(state)
       return action
-    resetActiveOption(state)
+    # action==0: reset option but keep ticks accumulating for idle detection.
+    resetActiveOptionKeepTicks(state)
 
-  return 0'u8
+  return 0'u16
 
 template optionGuard*(canName, termName: untyped, body: untyped) {.dirty.} =
   ## Generate a canStart/shouldTerminate pair from a single boolean expression.
@@ -604,7 +613,7 @@ macro defineBehavior*(name: static[string], body: untyped): untyped =
   ##     act:
   ##       let teamId = getTeamId(agent)
   ##       # ... logic ...
-  ##       0'u8
+  ##       0'u16
   ##
   ## Usage (complex - explicit shouldTerminate):
   ##   defineBehavior("FighterTrain"):
@@ -614,7 +623,7 @@ macro defineBehavior*(name: static[string], body: untyped): untyped =
   ##       agent.unitClass != UnitVillager or not canAffordTraining(env, agent)
   ##     act:
   ##       # ... training logic ...
-  ##       0'u8
+  ##       0'u16
   ##     interruptible: false
   ##
   ## The macro generates:
@@ -753,7 +762,7 @@ template behaviorGuard*(nameBase, canName, termName: untyped,
   ##     agent.hp * 3 <= agent.maxHp,
   ##     block:
   ##       if agent.hp * 3 > agent.maxHp:
-  ##         return 0'u8
+  ##         return 0'u16
   ##       controller.moveTo(env, agent, agentId, state, basePos)
   ##   )
   ##
@@ -770,7 +779,7 @@ template behaviorGuard*(nameBase, canName, termName: untyped,
   proc termName(controller: Controller, env: Environment, agent: Thing,
                 agentId: int, state: var AgentState): bool = not (condition)
   proc `opt nameBase`(controller: Controller, env: Environment, agent: Thing,
-                      agentId: int, state: var AgentState): uint8 = actBody
+                      agentId: int, state: var AgentState): uint16 = actBody
   let `nameBase Option`* = OptionDef(
     name: astToStr(nameBase),
     canStart: canName,

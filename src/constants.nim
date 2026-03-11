@@ -102,10 +102,33 @@ const
   GathererFleeRadius* = 8  # Radius at which gatherers flee from predators
   BuilderFleeRadius* = 8     # Radius at which builders flee from enemies
   BuilderThreatRadius* = 15  # Radius at which builder detects threat to base
-  EarlyGameThreshold* = 0.33  # First third of game
-  LateGameThreshold* = 0.66   # Last third of game
+  EarlyGameThreshold* = 0.25  # First quarter of game (steps 0-200 in 800-step game)
+  MidGameThreshold* = 0.50    # Middle of game (steps 200-400)
+  LateGameThreshold* = 0.75   # Last quarter of game (steps 600+)
   TaskSwitchHysteresis* = 5.0
 
+  # Phase-dependent role allocation ratios (gatherer:builder:fighter out of 6 slots)
+  # Early: 3 gatherers, 2 builders, 1 fighter (economy-heavy start)
+  EarlyGameGatherers* = 3
+  EarlyGameBuilders* = 2
+  EarlyGameFighters* = 1
+  # Mid: 2 gatherers, 2 builders, 2 fighters (balanced transition)
+  MidGameGatherers* = 2
+  MidGameBuilders* = 2
+  MidGameFighters* = 2
+  # Late: 2 gatherers, 1 builder, 3 fighters (military-heavy)
+  LateGameGatherers* = 2
+  LateGameBuilders* = 1
+  LateGameFighters* = 3
+
+  # Dynamic role re-assignment interval (steps between re-evaluations)
+  RoleReassignInterval* = 50
+
+  # Resource clustering / AoE-style gathering
+  DropoffProximityRadius* = 10   # Resources within this radius of a drop-off building get a bonus
+  MaxGatherersPerPatch* = 6      # Max gatherers before a patch is considered full
+  PatchRadius* = 6               # Radius used to define a resource patch around a drop-off
+  IdleAutoAssignSteps* = 8       # Steps idle before auto-assigning to a resource patch
   # ============================================================================
   # Military Unit Stats
   # ============================================================================
@@ -115,8 +138,8 @@ const
 
   # Archer
   ArcherAttackDamage* = 1
-  ArcherMaxHp* = 4
-  ArcherBaseRange* = 3
+  ArcherMaxHp* = 5
+  ArcherBaseRange* = 4
 
   # Scout
   ScoutAttackDamage* = 1
@@ -128,7 +151,7 @@ const
 
   # Monk
   MonkAttackDamage* = 0
-  MonkMaxHp* = 4
+  MonkMaxHp* = 20
 
   # Siege Units
   BatteringRamAttackDamage* = 2
@@ -146,30 +169,34 @@ const
   GoblinAttackDamage* = 1
   GoblinMaxHp* = 4
 
+  # Boat (embarked unit form)
+  BoatAttackDamage* = 1
+  BoatMaxHp* = 15
+
   # Trade Cog
-  TradeCogAttackDamage* = 0
-  TradeCogMaxHp* = 6
+  TradeCogAttackDamage* = 1
+  TradeCogMaxHp* = 15
   TradeCogGoldPerDistance* = 1
   TradeCogDistanceDivisor* = 10
 
   # ============================================================================
   # Castle Unique Unit Stats
   # ============================================================================
-  SamuraiMaxHp* = 7
+  SamuraiMaxHp* = 12
   SamuraiAttackDamage* = 3
-  LongbowmanMaxHp* = 5
+  LongbowmanMaxHp* = 10
   LongbowmanAttackDamage* = 2
-  CataphractMaxHp* = 10
+  CataphractMaxHp* = 14
   CataphractAttackDamage* = 2
-  WoadRaiderMaxHp* = 6
+  WoadRaiderMaxHp* = 10
   WoadRaiderAttackDamage* = 2
-  TeutonicKnightMaxHp* = 12
+  TeutonicKnightMaxHp* = 16
   TeutonicKnightAttackDamage* = 3
-  HuskarlMaxHp* = 8
+  HuskarlMaxHp* = 12
   HuskarlAttackDamage* = 2
-  MamelukeMaxHp* = 7
+  MamelukeMaxHp* = 10
   MamelukeAttackDamage* = 2
-  JanissaryMaxHp* = 6
+  JanissaryMaxHp* = 10
   JanissaryAttackDamage* = 3
   KingMaxHp* = 15
   KingAttackDamage* = 2
@@ -193,8 +220,8 @@ const
   # ============================================================================
   # Naval Combat Units
   # ============================================================================
-  GalleyMaxHp* = 8
-  GalleyAttackDamage* = 2
+  GalleyMaxHp* = 45
+  GalleyAttackDamage* = 6
   GalleyBaseRange* = 3
   FireShipMaxHp* = 6
   FireShipAttackDamage* = 3
@@ -275,14 +302,14 @@ const
 
   # University techs
   UniversityTechFoodCost* = 5
-  UniversityTechGoldCost* = 3
+  UniversityTechGoldCost* = 1
   UniversityTechWoodCost* = 2
 
   # Castle unique techs
-  CastleTechFoodCost* = 4
-  CastleTechGoldCost* = 3
-  CastleTechImperialFoodCost* = 8
-  CastleTechImperialGoldCost* = 6
+  CastleTechFoodCost* = 2
+  CastleTechGoldCost* = 2
+  CastleTechImperialFoodCost* = 4
+  CastleTechImperialGoldCost* = 3
 
   # Unit upgrade costs
   UnitUpgradeTier2FoodCost* = 3
@@ -336,6 +363,12 @@ const
   CropRotationFoodCost* = 5
   CropRotationWoodCost* = 3
   CropRotationFarmBonus* = 175  # +175 farm food (stacks)
+
+  # Training costs (tooltip display; units without registry lookup)
+  VillagerTrainFoodCost* = 2
+  KnightTrainFoodCost* = 4
+  KnightTrainGoldCost* = 3
+  BoatTrainWoodCost* = 3
 
   # Farm auto-reseed cost
   FarmReseedWoodCost* = 1
@@ -444,10 +477,15 @@ const
   RangedFormationSpacing* = 3     # Wider spacing for ranged units to avoid friendly fire
   RangedFormationRowOffset* = 2   # Offset between rows in ranged formation
 
+  # Rally grouping
+  RallyWaitSteps* = 15        # Max steps to wait at rally point for allies
+  RallyMinGroupSize* = 3      # Min nearby allies to consider group formed
+
   # Scout behavior
   ScoutFleeRadius* = 10       # Distance at which scouts flee from enemies
   ScoutFleeRecoverySteps* = 30  # Steps after enemy sighting before resuming
   ScoutExploreGrowth* = 3     # How much to expand explore radius each cycle
+  ScoutSectorRotationSteps* = 60  # Steps per sector rotation (cycles through NE/SE/SW/NW)
 
   # ============================================================================
   # Settlement (per-altar building association)
@@ -462,6 +500,7 @@ const
   WallRingBuildingsPerRadius* = 4
   WallRingRadiusSlack* = 1
   WallRingMaxDoors* = 2
+  MaxWallsPerTeam* = 40  # Reduced from 60 to limit wall obsession (tv-il11vv)
 
   # ============================================================================
   # Fortification
@@ -550,6 +589,17 @@ const
   BushClusterSizeMax* = 7              # Maximum bush cluster size
   BushWaterProximity* = 4              # Prefer placing bushes near water
 
+  # Contested resource zones (central map)
+  ContestedZoneCount* = 3              # Number of contested resource zones
+  ContestedZoneRadius* = 9             # Radius of each zone in tiles
+  ContestedZoneGoldCount* = 4          # Gold mines per zone
+  ContestedZoneStoneCount* = 3         # Stone mines per zone
+  ContestedZoneWheatSize* = 6          # Wheat cluster size per zone
+  ContestedZoneBushSize* = 5           # Bush cluster size per zone
+  ContestedZoneCowCount* = 4           # Cows per zone
+  ContestedZoneRelics* = 1             # Relics per zone
+  ContestedZoneHubClearance* = 12      # Min distance from trading hub center
+
   # ============================================================================
   # UI Interaction
   # ============================================================================
@@ -557,7 +607,11 @@ const
   DoubleTapThreshold* = 0.3            # Seconds between taps for double-tap
   ZoomSensitivityDesktop* = 0.005      # Zoom scroll sensitivity (desktop)
   ZoomSensitivityWeb* = 0.002          # Zoom scroll sensitivity (emscripten)
-  VelocityDecayRate* = 0.9'f32         # Camera velocity decay per frame
+  VelocityDecayRate* = 0.85'f32        # Camera velocity decay per frame (lower = faster stop)
+  CameraPanAccel* = 1.8'f32           # Camera pan acceleration per frame (pixels)
+  CameraPanMaxSpeed* = 14.0'f32       # Maximum camera pan speed (pixels/frame)
+  CameraSnapThreshold* = 0.5'f32      # Stop velocity below this threshold
+  ZoomSmoothRate* = 0.15'f32          # Zoom interpolation rate per frame (0-1)
   MinVisibleMapPixels* = 500.0'f32     # Minimum visible map area in pixels
 
   # Selection box rendering

@@ -243,7 +243,7 @@ proc getTotalHpPerTeam*(env: Environment): array[MapRoomObjectsTeams, int] =
 # Action Tracking Helpers
 # ============================================================================
 
-proc countNonNoopActions*(actions: array[MapAgents, uint8]): int =
+proc countNonNoopActions*(actions: array[MapAgents, uint16]): int =
   ## Count non-NOOP actions in an action array.
   for i in 0 ..< MapAgents:
     if actions[i] != 0:

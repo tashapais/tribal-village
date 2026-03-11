@@ -150,15 +150,15 @@ The spatial index (spatial_index.nim) provides O(1) amortized queries:
 # Full step timing + AI timing
 TV_PROFILE_STEPS=2000 TV_STEP_TIMING=1 TV_TIMING_INTERVAL=500 \
   TV_AI_TIMING=1 TV_AI_TIMING_INTERVAL=500 \
-  nim r -d:release -d:stepTiming --path:src scripts/profile_ai.nim
+  nim r -d:release -d:stepTiming --path:src scripts/benchmark_steps.nim
 
 # Flame graph output (requires -d:flameGraph)
 TV_FLAME_OUTPUT=profile.collapsed TV_PROFILE_STEPS=1000 \
-  nim r -d:release -d:flameGraph --path:src scripts/profile_ai.nim
+  nim r -d:release -d:flameGraph --path:src scripts/benchmark_steps.nim
 
 # Performance regression detection
 TV_PERF_INTERVAL=100 TV_PROFILE_STEPS=2000 \
-  nim r -d:release -d:perfRegression --path:src scripts/profile_ai.nim
+  nim r -d:release -d:perfRegression --path:src scripts/benchmark_steps.nim
 ```
 
 ## Conclusion

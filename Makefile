@@ -1,4 +1,4 @@
-.PHONY: check build lib clean test test-nim test-python test-integration test-settlement install-hooks audit-settlement benchmark
+.PHONY: check build lib clean test test-nim test-python test-integration test-settlement audit-settlement benchmark
 
 # CI gate for nim check - syncs deps first
 check:
@@ -44,7 +44,3 @@ benchmark:
 	@mkdir -p baselines
 	TV_PERF_SAVE_BASELINE=baselines/benchmark.json \
 		nim c -r -d:release -d:perfRegression --path:src scripts/benchmark_steps.nim
-
-# Install git hooks for development
-install-hooks:
-	./scripts/install_hooks.sh

@@ -72,7 +72,7 @@ when defined(aiAudit):
     auditCurrentBranch = branch
 
   proc recordAuditDecision*(agentId: int, teamId: int, role: AgentRole,
-                            action: uint8) =
+                            action: uint16) =
     if auditSummary.logLevel <= 0:
       return
     let verb = action.int div ActionArgumentCount
@@ -176,5 +176,5 @@ when defined(aiAudit):
 else:
   template setAuditBranch*(branch: untyped) = discard
   template initAuditLog*() = discard
-  template recordAuditDecision*(agentId, teamId: int, role: untyped, action: uint8) = discard
+  template recordAuditDecision*(agentId, teamId: int, role: untyped, action: uint16) = discard
   template printAuditSummary*(step: int) = discard

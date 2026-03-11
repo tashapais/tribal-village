@@ -206,6 +206,7 @@ type
     TerrainDuneLayer
     TerrainSandLayer
     TerrainSnowLayer
+    TerrainMountainLayer
     TerrainRampUpNLayer
     TerrainRampUpSLayer
     TerrainRampUpWLayer
@@ -279,6 +280,10 @@ type
     ThingCliffCornerOutSELayer
     ThingCliffCornerOutSWLayer
     ThingCliffCornerOutNWLayer
+    ThingWaterfallNLayer
+    ThingWaterfallELayer
+    ThingWaterfallSLayer
+    ThingWaterfallWLayer
 
     TeamLayer                 # Team id + 1, 0 = none/neutral
     AgentOrientationLayer     # Orientation enum + 1, 0 = none
@@ -507,6 +512,10 @@ type
     CliffCornerOutSE
     CliffCornerOutSW
     CliffCornerOutNW
+    WaterfallN         # Waterfall where water flows north (higher ground to north)
+    WaterfallE         # Waterfall where water flows east
+    WaterfallS         # Waterfall where water flows south
+    WaterfallW         # Waterfall where water flows west
 
 const
   TerrainLayerStart* = ord(TerrainEmptyLayer)
@@ -903,6 +912,22 @@ const
   UnitTrailSpawnChance* = 3           ## Spawn trail every N moves (reduces particle count)
 
 type
+  DustParticle* = object
+    ## A dust particle kicked up by walking units based on terrain type.
+    ## Small particles that drift upward and fade out quickly.
+    pos*: Vec2           ## Current world position (float for smooth animation)
+    velocity*: Vec2      ## Movement velocity (upward drift with horizontal spread)
+    countdown*: int8     ## Frames remaining before removal
+    lifetime*: int8      ## Total frames (for fade calculation)
+    terrainColor*: uint8 ## Terrain type index for color lookup (0=sand, 1=snow, 2=mud, etc.)
+
+const
+  ## Dust particle visual constants
+  DustParticleLifetime* = 8'i8        ## Frames dust particles persist (quick puff)
+  DustParticlePoolCapacity* = 128     ## Initial capacity for dust pool
+  DustParticleCount* = 3              ## Number of dust particles per footstep
+
+type
   WaterRipple* = object
     ## A ripple effect when units walk through water.
     ## Expands outward and fades over its lifetime.
@@ -993,6 +1018,13 @@ const
     CliffCornerOutNW
   }
 
+  WaterfallKinds* = {
+    WaterfallN,
+    WaterfallE,
+    WaterfallS,
+    WaterfallW
+  }
+
 const
   BackgroundThingKinds* = {
     Door,
@@ -1006,7 +1038,7 @@ const
     Skeleton,
     Dock,
     ControlPoint
-  } + CliffKinds
+  } + CliffKinds + WaterfallKinds
 
 proc getTeamId*(agent: Thing): int =
   ## Team ID lookup that respects conversions.
@@ -1064,6 +1096,8 @@ const
   # Single source of truth for the clippy/creep tint; aligned to clamp limits so tiles can actually reach it.
   ClippyTint* = TileColor(r: 0.30'f32, g: 0.30'f32, b: 1.20'f32, intensity: 0.80'f32)
   ClippyTintTolerance* = 0.06'f32
+
+  ContestedZoneTint* = TileColor(r: 0.75, g: 0.80, b: 0.55, intensity: 1.05)
 
   TotalRelicsOnMap* = MapRoomObjectsRelics  # Total relics placed on map
 
@@ -1242,9 +1276,12 @@ type
     UpgradeChampion          ## LongSwordsman → Champion (Barracks)
     UpgradeLightCavalry      ## Scout → LightCavalry (Stable)
     UpgradeHussar            ## LightCavalry → Hussar (Stable)
+    UpgradeKnight            ## Unlocks Knight at Stable (replaces Scout line)
     UpgradeCrossbowman       ## Archer → Crossbowman (Archery Range)
     UpgradeArbalester        ## Crossbowman → Arbalester (Archery Range)
+    UpgradeSkirmisher        ## Unlocks Skirmisher at Archery Range
     UpgradeEliteSkirmisher   ## Skirmisher → Elite Skirmisher (Archery Range)
+    UpgradeCavalryArcher     ## Unlocks Cavalry Archer at Archery Range
     UpgradeHeavyCavalryArcher ## Cavalry Archer → Heavy Cavalry Archer (Archery Range)
 
   UnitUpgrades* = object
@@ -1335,6 +1372,7 @@ type
     gatherSparkles*: seq[GatherSparkle]  # Sparkle particles when collecting resources
     constructionDust*: seq[ConstructionDust]  # Dust particles during building construction
     unitTrails*: seq[UnitTrail]  # Dust/footprint trails behind moving units
+    dustParticles*: seq[DustParticle]  # Dust kicked up by walking units on dusty terrain
     waterRipples*: seq[WaterRipple]  # Ripple effects when units walk through water
     attackImpacts*: seq[AttackImpact]  # Burst particles when attacks hit targets
     conversionEffects*: seq[ConversionEffect]  # Pulsing glow when monks convert units

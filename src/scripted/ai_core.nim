@@ -5,31 +5,23 @@ import ../entropy
 import vmath
 import ../environment, ../common_types, ../terrain
 import ai_types
+import ai_utils
 import coordination
 import memoization
 
 # Re-export modules so downstream importers get full environment/AI type access
-export ai_types, environment, common_types, terrain, coordination, entropy
+export ai_types, ai_utils, environment, common_types, terrain, coordination, entropy
 export memoization
 
 const
-  CacheMaxAge* = 20  # Invalidate cached positions after this many steps
+  CacheMaxAge* = 12  # Invalidate cached positions after this many steps (faster re-path on depletion)
   ThreatMapStaggerInterval* = 5  # Only 1/5 of agents update threat map per step
-  DefensiveRetaliationWindow* = 30  ## Steps after being attacked that defensive stance allows retaliation
+  PathBlockRetryInterval* = 8   # Steps between re-trying A* for blocked targets
 
 proc stanceAllowsAutoAttack*(env: Environment, agent: Thing): bool =
   ## Returns true if the agent's stance allows auto-attacking enemies.
-  ## - Aggressive: always auto-attack
-  ## - Defensive: only auto-attack if recently attacked (retaliation)
-  ## - StandGround: auto-attack enemies in range
-  ## - NoAttack: never auto-attack
-  case agent.stance
-  of StanceAggressive, StanceStandGround: true
-  of StanceDefensive:
-    # Defensive stance: only attack if attacked within the retaliation window
-    agent.lastAttackedStep > 0 and
-      (env.currentStep - agent.lastAttackedStep) <= DefensiveRetaliationWindow
-  of StanceNoAttack: false
+  ## Delegates to ai_utils.stanceAllows for consolidated stance logic.
+  stanceAllows(env, agent, BehaviorAutoAttack)
 
 proc hasHarvestableResource*(thing: Thing): bool =
   ## Check if a resource thing still has harvestable inventory.
@@ -270,7 +262,7 @@ proc isAgentInitialized*(controller: Controller, agentId: int): bool =
   return false
 
 # Helper proc to save state and return action
-proc saveStateAndReturn*(controller: Controller, agentId: int, state: AgentState, action: uint8): uint8 =
+proc saveStateAndReturn*(controller: Controller, agentId: int, state: AgentState, action: uint16): uint16 =
   var nextState = state
   nextState.lastActionVerb = action.int div ActionArgumentCount
   nextState.lastActionArg = action.int mod ActionArgumentCount
@@ -652,7 +644,10 @@ proc findNearestThingSpiral*(env: Environment, state: var AgentState, kind: Thin
   if cachedPos.x >= 0:
     if env.currentStep - state.cachedThingStep[kind] < CacheMaxAge and
        abs(cachedPos.x - state.lastSearchPosition.x) + abs(cachedPos.y - state.lastSearchPosition.y) < 30:
-      let cachedThing = env.getThing(cachedPos)
+      # Check both blocking grid and background grid (relics, doors, etc.)
+      var cachedThing = env.getThing(cachedPos)
+      if cachedThing.isNil:
+        cachedThing = env.getBackgroundThing(cachedPos)
       if not isNil(cachedThing) and cachedThing.kind == kind and
          hasHarvestableResource(cachedThing):
         return cachedThing
@@ -943,7 +938,7 @@ proc findAttackOpportunity*(env: Environment, agent: Thing, ignoreStance: bool =
 #   - isPassable: Static passability check (ignores agent swapping)
 #   - canEnterForMove: Directional passability with lantern pushing rules
 #   - getMoveTowards: Greedy single-step movement with obstacle avoidance
-#   - findPath: A* pathfinding for longer distances (>6 tiles)
+#   - findPath: A* pathfinding for longer distances (>=4 tiles)
 #   - moveTo: High-level movement that combines A* and greedy approaches
 #
 # The system uses a generation-counter pattern for the PathfindingCache to
@@ -967,6 +962,8 @@ proc isPassable*(env: Environment, agent: Thing, pos: IVec2): bool =
   if not isValidPos(pos):
     return false
   if env.isWaterBlockedForAgent(agent, pos):
+    return false
+  if env.terrain[pos.x][pos.y] == Mountain:
     return false
   if not env.canAgentPassDoor(agent, pos):
     return false
@@ -999,6 +996,8 @@ proc canEnterForMove*(env: Environment, agent: Thing, fromPos, toPos: IVec2): bo
   if not env.canTraverseElevation(fromPos, toPos):
     return false
   if env.isWaterBlockedForAgent(agent, toPos):
+    return false
+  if env.terrain[toPos.x][toPos.y] == Mountain:
     return false
   if not env.canAgentPassDoor(agent, toPos):
     return false
@@ -1289,7 +1288,7 @@ proc isLanternPlacementValid*(env: Environment, pos: IVec2): bool =
 
 
 proc tryPlantOnFertile*(controller: Controller, env: Environment, agent: Thing,
-                       agentId: int, state: var AgentState): tuple[did: bool, action: uint8] =
+                       agentId: int, state: var AgentState): tuple[did: bool, action: uint16] =
   ## If carrying wood/wheat and a fertile tile is nearby, plant; otherwise move toward it.
   if agent.inventoryWheat > 0 or agent.inventoryWood > 0:
     var fertilePos = ivec2(-1, -1)
@@ -1318,24 +1317,24 @@ proc tryPlantOnFertile*(controller: Controller, env: Environment, agent: Thing,
         let dirIdx = neighborDirIndex(agent.pos, fertilePos)
         let plantArg = (if agent.inventoryWheat > 0: dirIdx else: dirIdx + 4)
         return (true, saveStateAndReturn(controller, agentId, state,
-                 encodeAction(7'u8, plantArg.uint8)))
+                 encodeAction(7'u16, plantArg.uint8)))
       else:
         let avoidDir = (if state.blockedMoveSteps > 0: state.blockedMoveDir else: -1)
         let dir = getMoveTowards(env, agent, agent.pos, fertilePos, controller.rng, avoidDir)
         if dir < 0:
-          return (false, 0'u8)  # Can't move toward fertile, let other option handle it
+          return (false, 0'u16)  # Can't move toward fertile, let other option handle it
         return (true, saveStateAndReturn(controller, agentId, state,
-                 encodeAction(1'u8, dir.uint8)))
-  return (false, 0'u8)
+                 encodeAction(1'u16, dir.uint8)))
+  return (false, 0'u16)
 
 proc moveNextSearch*(controller: Controller, env: Environment, agent: Thing, agentId: int,
-                    state: var AgentState): uint8 =
+                    state: var AgentState): uint16 =
   let dir = getMoveTowards(
     env, agent, agent.pos, getNextSpiralPoint(state),
     controller.rng, (if state.blockedMoveSteps > 0: state.blockedMoveDir else: -1))
   if dir < 0:
-    return saveStateAndReturn(controller, agentId, state, 0'u8)  # Noop when blocked
-  return saveStateAndReturn(controller, agentId, state, encodeAction(1'u8, dir.uint8))
+    return saveStateAndReturn(controller, agentId, state, 0'u16)  # Noop when blocked
+  return saveStateAndReturn(controller, agentId, state, encodeAction(1'u16, dir.uint8))
 
 proc isAdjacent*(a, b: IVec2): bool =
   let dx = abs(a.x - b.x)
@@ -1343,8 +1342,8 @@ proc isAdjacent*(a, b: IVec2): bool =
   max(dx, dy) == 1'i32
 
 proc actAt*(controller: Controller, env: Environment, agent: Thing, agentId: int,
-           state: var AgentState, targetPos: IVec2, verb: uint8,
-           argument: int = -1): uint8 =
+           state: var AgentState, targetPos: IVec2, verb: uint16,
+           argument: int = -1): uint16 =
   return saveStateAndReturn(controller, agentId, state,
     encodeAction(verb,
       (if argument < 0: neighborDirIndex(agent.pos, targetPos) else: argument).uint8))
@@ -1374,7 +1373,7 @@ proc isOscillating*(state: AgentState): bool =
   uniqueCount <= 2
 
 proc moveTo*(controller: Controller, env: Environment, agent: Thing, agentId: int,
-            state: var AgentState, targetPos: IVec2): uint8 =
+            state: var AgentState, targetPos: IVec2): uint16 =
   ## High-level movement function: move agent toward targetPos.
   ##
   ## This is the primary movement API used by AI behaviors. It automatically
@@ -1397,7 +1396,13 @@ proc moveTo*(controller: Controller, env: Environment, agent: Thing, agentId: in
   ##
   ## Returns an encoded move action, or NOOP (0) if completely blocked.
   if state.pathBlockedTarget == targetPos:
-    return controller.moveNextSearch(env, agent, agentId, state)
+    # Periodically retry A* for blocked targets instead of spiraling indefinitely.
+    # This lets units recover when a blocking obstacle moves (e.g. another unit).
+    if (env.currentStep mod PathBlockRetryInterval) == 0:
+      state.pathBlockedTarget = ivec2(-1, -1)
+      state.plannedPath.setLen(0)
+    else:
+      return controller.moveNextSearch(env, agent, agentId, state)
   let stuck = isOscillating(state)
   if stuck:
     state.pathBlockedTarget = ivec2(-1, -1)
@@ -1408,7 +1413,7 @@ proc moveTo*(controller: Controller, env: Environment, agent: Thing, agentId: in
     state.plannedTarget = targetPos
     state.plannedPathIndex = 0
 
-  let usesAstar = chebyshevDist(agent.pos, targetPos) >= 6 or stuck
+  let usesAstar = chebyshevDist(agent.pos, targetPos) >= 4 or stuck
   if usesAstar:
     if state.pathBlockedTarget != targetPos or stuck:
       let needsReplan = state.plannedTarget != targetPos or
@@ -1428,10 +1433,10 @@ proc moveTo*(controller: Controller, env: Environment, agent: Thing, agentId: in
               state.plannedPath.setLen(0)
               state.plannedPathIndex = 0
               return saveStateAndReturn(controller, agentId, state,
-                encodeAction(1'u8, altDir.uint8))
+                encodeAction(1'u16, altDir.uint8))
           state.plannedPathIndex += 1
           return saveStateAndReturn(controller, agentId, state,
-            encodeAction(1'u8, dirIdx.uint8))
+            encodeAction(1'u16, dirIdx.uint8))
         # Next step blocked - recompute path instead of giving up on target
         findPath(controller, env, agent, agent.pos, targetPos, state.plannedPath)
         state.plannedTarget = targetPos
@@ -1443,7 +1448,7 @@ proc moveTo*(controller: Controller, env: Environment, agent: Thing, agentId: in
             let dirIdx = neighborDirIndex(agent.pos, recomputedNext)
             state.plannedPathIndex = 1
             return saveStateAndReturn(controller, agentId, state,
-              encodeAction(1'u8, dirIdx.uint8))
+              encodeAction(1'u16, dirIdx.uint8))
         # Recompute also failed - mark target as blocked
         state.plannedPath.setLen(0)
         state.pathBlockedTarget = targetPos
@@ -1458,44 +1463,48 @@ proc moveTo*(controller: Controller, env: Environment, agent: Thing, agentId: in
     (if state.blockedMoveSteps > 0: state.blockedMoveDir else: -1)
   )
   if dirIdx < 0:
-    return saveStateAndReturn(controller, agentId, state, 0'u8)  # Noop when blocked
+    # When blocked, try to attack adjacent enemies instead of idling
+    let attackDir = findAttackOpportunity(env, agent)
+    if attackDir >= 0:
+      return saveStateAndReturn(controller, agentId, state, encodeAction(2'u16, attackDir.uint8))
+    return saveStateAndReturn(controller, agentId, state, 0'u16)  # Noop when blocked
   if state.role == Builder and state.lastPosition == agent.pos + Directions8[dirIdx]:
     let altDir = getMoveTowards(env, agent, agent.pos, targetPos, controller.rng, dirIdx)
     if altDir >= 0 and altDir != dirIdx:
       dirIdx = altDir
   return saveStateAndReturn(controller, agentId, state,
-    encodeAction(1'u8, dirIdx.uint8))
+    encodeAction(1'u16, dirIdx.uint8))
 
 proc useAt*(controller: Controller, env: Environment, agent: Thing, agentId: int,
-           state: var AgentState, targetPos: IVec2): uint8 =
-  actAt(controller, env, agent, agentId, state, targetPos, 3'u8)
+           state: var AgentState, targetPos: IVec2): uint16 =
+  actAt(controller, env, agent, agentId, state, targetPos, 3'u16)
 
 proc useOrMoveTo*(controller: Controller, env: Environment, agent: Thing,
-                  agentId: int, state: var AgentState, targetPos: IVec2): uint8 =
+                  agentId: int, state: var AgentState, targetPos: IVec2): uint16 =
   ## If adjacent to target, interact (use); otherwise move toward it.
   if isAdjacent(agent.pos, targetPos):
-    controller.actAt(env, agent, agentId, state, targetPos, 3'u8)
+    controller.actAt(env, agent, agentId, state, targetPos, 3'u16)
   else:
     controller.moveTo(env, agent, agentId, state, targetPos)
 
 proc tryMoveToKnownResource*(controller: Controller, env: Environment, agent: Thing, agentId: int,
                             state: var AgentState, pos: var IVec2,
-                            allowed: set[ThingKind], verb: uint8): tuple[did: bool, action: uint8] =
+                            allowed: set[ThingKind], verb: uint16): tuple[did: bool, action: uint16] =
   if pos.x < 0:
-    return (false, 0'u8)
+    return (false, 0'u16)
   if pos == state.pathBlockedTarget:
     pos = ivec2(-1, -1)
-    return (false, 0'u8)
+    return (false, 0'u16)
   let thing = env.getThing(pos)
   if isNil(thing) or thing.kind notin allowed or isThingFrozen(thing, env) or
      not hasHarvestableResource(thing):
     pos = ivec2(-1, -1)
-    return (false, 0'u8)
+    return (false, 0'u16)
   # Skip if reserved by another agent on our team
   let teamId = getTeamId(agent)
   if isResourceReserved(teamId, pos, agentId):
     pos = ivec2(-1, -1)
-    return (false, 0'u8)
+    return (false, 0'u16)
   # Reserve this resource for ourselves
   discard reserveResource(teamId, agentId, pos, env.currentStep)
   return (true, if isAdjacent(agent.pos, pos):
@@ -1504,11 +1513,11 @@ proc tryMoveToKnownResource*(controller: Controller, env: Environment, agent: Th
     moveTo(controller, env, agent, agentId, state, pos))
 
 proc moveToNearestSmith*(controller: Controller, env: Environment, agent: Thing, agentId: int,
-                        state: var AgentState, teamId: int): tuple[did: bool, action: uint8] =
+                        state: var AgentState, teamId: int): tuple[did: bool, action: uint16] =
   let smith = env.findNearestFriendlyThingSpiral(state, teamId, Blacksmith)
   if not isNil(smith):
     return (true, controller.useOrMoveTo(env, agent, agentId, state, smith.pos))
-  (false, 0'u8)
+  (false, 0'u16)
 
 proc findDropoffBuilding*(env: Environment, state: var AgentState, teamId: int,
                           res: StockpileResource, rng: var Rand): Thing =
@@ -1535,7 +1544,7 @@ proc dropoffCarrying*(controller: Controller, env: Environment, agent: Thing,
                       allowFood: bool = false,
                       allowWood: bool = false,
                       allowStone: bool = false,
-                      allowGold: bool = false): tuple[did: bool, action: uint8] =
+                      allowGold: bool = false): tuple[did: bool, action: uint16] =
   ## Unified dropoff function - attempts to drop off resources in priority order
   let teamId = getTeamId(agent)
 
@@ -1554,18 +1563,48 @@ proc dropoffCarrying*(controller: Controller, env: Environment, agent: Thing,
   if allowGold and agent.inventoryGold > 0: tryDropoff(ResourceGold)
   if allowStone and agent.inventoryStone > 0: tryDropoff(ResourceStone)
 
-  (false, 0'u8)
+  (false, 0'u16)
 
 proc ensureResourceReserved(controller: Controller, env: Environment, agent: Thing, agentId: int,
                             state: var AgentState, closestPos: var IVec2,
                             allowedKinds: set[ThingKind],
-                            kinds: openArray[ThingKind]): tuple[did: bool, action: uint8] =
+                            kinds: openArray[ThingKind],
+                            patchKind: ResourcePatchKind = PatchFood): tuple[did: bool, action: uint16] =
   ## Shared resource-gathering with reservation: check cached position, spiral-search
   ## for the nearest resource of the given kinds, reserve it, then use or move to it.
+  ## Prefers resources near drop-off buildings (AoE-style clustering).
   let (didKnown, actKnown) = controller.tryMoveToKnownResource(
-    env, agent, agentId, state, closestPos, allowedKinds, 3'u8)
+    env, agent, agentId, state, closestPos, allowedKinds, 3'u16)
   if didKnown: return (didKnown, actKnown)
   let teamId = getTeamId(agent)
+
+  # Phase 1: Look for resources near a drop-off building first (clustering behavior).
+  # Find nearest relevant drop-off and search for unreserved resources near it.
+  let dropoff = findNearestDropoffForResource(env, agent.pos, teamId, patchKind)
+  if not isNil(dropoff):
+    let gatherers = countGatherersNearPos(env, teamId, dropoff.pos, PatchRadius)
+    if gatherers < MaxGatherersPerPatch:
+      # Search for resources near the drop-off building
+      for kind in kinds:
+        let nearDropoff = findNearestThing(env, dropoff.pos, kind, maxDist = DropoffProximityRadius)
+        if isNil(nearDropoff):
+          continue
+        if nearDropoff.pos == state.pathBlockedTarget:
+          continue
+        if isResourceReserved(teamId, nearDropoff.pos, agentId):
+          continue
+        if not hasHarvestableResource(nearDropoff):
+          continue
+        if isThingFrozen(nearDropoff, env):
+          continue
+        updateClosestSeen(state, state.basePosition, nearDropoff.pos, closestPos)
+        discard reserveResource(teamId, agentId, nearDropoff.pos, env.currentStep)
+        return (true, if isAdjacent(agent.pos, nearDropoff.pos):
+          controller.useAt(env, agent, agentId, state, nearDropoff.pos)
+        else:
+          controller.moveTo(env, agent, agentId, state, nearDropoff.pos))
+
+  # Phase 2: Fall back to normal spiral search if no drop-off cluster available
   for kind in kinds:
     let target = env.findNearestThingSpiral(state, kind)
     if isNil(target):
@@ -1584,22 +1623,22 @@ proc ensureResourceReserved(controller: Controller, env: Environment, agent: Thi
   (true, controller.moveNextSearch(env, agent, agentId, state))
 
 proc ensureWood*(controller: Controller, env: Environment, agent: Thing, agentId: int,
-                state: var AgentState): tuple[did: bool, action: uint8] =
+                state: var AgentState): tuple[did: bool, action: uint16] =
   ensureResourceReserved(controller, env, agent, agentId, state,
-    state.closestWoodPos, {Stump, Tree}, [Stump, Tree])
+    state.closestWoodPos, {Stump, Tree}, [Stump, Tree], PatchWood)
 
 proc ensureStone*(controller: Controller, env: Environment, agent: Thing, agentId: int,
-                 state: var AgentState): tuple[did: bool, action: uint8] =
+                 state: var AgentState): tuple[did: bool, action: uint16] =
   ensureResourceReserved(controller, env, agent, agentId, state,
-    state.closestStonePos, {Stone, Stalagmite}, [Stone, Stalagmite])
+    state.closestStonePos, {Stone, Stalagmite}, [Stone, Stalagmite], PatchStone)
 
 proc ensureGold*(controller: Controller, env: Environment, agent: Thing, agentId: int,
-                state: var AgentState): tuple[did: bool, action: uint8] =
+                state: var AgentState): tuple[did: bool, action: uint16] =
   ensureResourceReserved(controller, env, agent, agentId, state,
-    state.closestGoldPos, {Gold}, [Gold])
+    state.closestGoldPos, {Gold}, [Gold], PatchGold)
 
 proc ensureWater*(controller: Controller, env: Environment, agent: Thing, agentId: int,
-                 state: var AgentState): tuple[did: bool, action: uint8] =
+                 state: var AgentState): tuple[did: bool, action: uint16] =
   # Invalidate cached water if blocked, depleted, or frozen
   if state.closestWaterPos.x >= 0 and
      (state.closestWaterPos == state.pathBlockedTarget or
@@ -1617,7 +1656,7 @@ proc ensureWater*(controller: Controller, env: Environment, agent: Thing, agentI
   (true, controller.moveNextSearch(env, agent, agentId, state))
 
 proc ensureWheat*(controller: Controller, env: Environment, agent: Thing, agentId: int,
-                 state: var AgentState): tuple[did: bool, action: uint8] =
+                 state: var AgentState): tuple[did: bool, action: uint16] =
   let teamId = getTeamId(agent)
   for kind in [Wheat, Stubble]:
     let target = env.findNearestThingSpiral(state, kind)
@@ -1637,7 +1676,7 @@ proc ensureWheat*(controller: Controller, env: Environment, agent: Thing, agentI
   (true, controller.moveNextSearch(env, agent, agentId, state))
 
 proc ensureHuntFood*(controller: Controller, env: Environment, agent: Thing, agentId: int,
-                    state: var AgentState): tuple[did: bool, action: uint8] =
+                    state: var AgentState): tuple[did: bool, action: uint16] =
   let teamId = getTeamId(agent)
   for kind in [Corpse, Cow, Bush, Fish]:
     let target = env.findNearestThingSpiral(state, kind)
@@ -1655,11 +1694,11 @@ proc ensureHuntFood*(controller: Controller, env: Environment, agent: Thing, age
     let verb = if kind == Cow:
       let foodCritical = env.stockpileCount(teamId, ResourceFood) < 3
       let cowHealthy = target.hp * 2 >= target.maxHp
-      if cowHealthy and not foodCritical: 3'u8 else: 2'u8
+      if cowHealthy and not foodCritical: 3'u16 else: 2'u16
     else:
-      3'u8
+      3'u16
     return (true, if isAdjacent(agent.pos, target.pos):
-      (if verb == 2'u8:
+      (if verb == 2'u16:
         controller.actAt(env, agent, agentId, state, target.pos, verb)
       else:
         controller.useAt(env, agent, agentId, state, target.pos))

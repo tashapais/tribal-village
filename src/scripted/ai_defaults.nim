@@ -268,7 +268,7 @@ proc processTempleHybridRequests(controller: Controller, env: Environment) =
 const GoblinAvoidRadius = 6
 
 proc tryPrioritizeHearts(controller: Controller, env: Environment, agent: Thing,
-                         agentId: int, state: var AgentState): tuple[did: bool, action: uint8] =
+                         agentId: int, state: var AgentState): tuple[did: bool, action: uint16] =
   let teamId = getTeamId(agent)
   var altarPos = ivec2(-1, -1)
   var altarHearts = 0
@@ -284,7 +284,7 @@ proc tryPrioritizeHearts(controller: Controller, env: Environment, agent: Thing,
       altarPos = nearestAltar.pos
       altarHearts = nearestAltar.hearts
   if altarPos.x < 0 or altarHearts >= 10:
-    return (false, 0'u8)
+    return (false, 0'u16)
 
   if agent.inventoryBar > 0:
     if isAdjacent(agent.pos, altarPos):
@@ -293,7 +293,7 @@ proc tryPrioritizeHearts(controller: Controller, env: Environment, agent: Thing,
 
   if agent.inventoryGold > 0:
     let (didKnown, actKnown) = controller.tryMoveToKnownResource(
-      env, agent, agentId, state, state.closestMagmaPos, {Magma}, 3'u8)
+      env, agent, agentId, state, state.closestMagmaPos, {Magma}, 3'u16)
     if didKnown: return (true, actKnown)
     let magmaGlobal = findNearestThing(env, agent.pos, Magma, maxDist = int.high)
     if not isNil(magmaGlobal):
@@ -307,10 +307,10 @@ proc tryPrioritizeHearts(controller: Controller, env: Environment, agent: Thing,
     let (didGold, actGold) = controller.ensureGold(env, agent, agentId, state)
     if didGold: return (true, actGold)
 
-  (false, 0'u8)
+  (false, 0'u16)
 
 proc decideRoleFromCatalog(controller: Controller, env: Environment, agent: Thing,
-                           agentId: int, state: var AgentState): uint8 =
+                           agentId: int, state: var AgentState): uint16 =
   if state.role == Gatherer:
     updateGathererTask(controller, env, agent, state)
   var roleId = state.roleId
@@ -321,26 +321,38 @@ proc decideRoleFromCatalog(controller: Controller, env: Environment, agent: Thin
     return runOptions(controller, env, agent, agentId, state, BuilderOptionsThreat)
   let options = roleOptionsFor(roleId, controller.rng)
   if options.len == 0:
-    return 0'u8
+    return 0'u16
   return runOptions(controller, env, agent, agentId, state, options)
 
-proc decideAction*(controller: Controller, env: Environment, agentId: int): uint8 =
+proc decideAction*(controller: Controller, env: Environment, agentId: int): uint16 =
   let agent = env.agents[agentId]
 
   # Skip inactive agents
   if not isAgentAlive(env, agent):
     setAuditBranch(BranchInactive)
-    return encodeAction(0'u8, 0'u8)
+    return encodeAction(0'u16, 0'u16)
 
   initScriptedState(controller)
 
-  # Initialize agent role if needed (2 gatherers, 2 builders, 2 fighters)
+  # Initialize agent role based on game phase
+  # Early: economy-heavy (3G/2B/1F), Mid: balanced (2G/2B/2F), Late: military (2G/1B/3F)
   if not controller.agentsInitialized[agentId]:
     let slot = agentId mod MapAgentsPerTeam
+    let gameProgress = if env.config.maxSteps > 0:
+      env.currentStep.float / env.config.maxSteps.float
+    else:
+      0.0
+    # Determine gatherer/builder/fighter slot counts based on phase
+    let (nGatherers, nBuilders) = if gameProgress < EarlyGameThreshold:
+      (EarlyGameGatherers, EarlyGameBuilders)
+    elif gameProgress < LateGameThreshold:
+      (MidGameGatherers, MidGameBuilders)
+    else:
+      (LateGameGatherers, LateGameBuilders)
+    let slotMod = slot mod 6
     var role =
-      case slot mod 6
-      of 0, 1: Gatherer
-      of 2, 3: Builder
+      if slotMod < nGatherers: Gatherer
+      elif slotMod < nGatherers + nBuilders: Builder
       else: Fighter
 
     # Preserve any patrol state that was set before initialization
@@ -410,7 +422,7 @@ proc decideAction*(controller: Controller, env: Environment, agentId: int): uint
   # Lower difficulty = more delays, making AI slower to react
   if controller.shouldApplyDecisionDelay(teamId):
     setAuditBranch(BranchDecisionDelay)
-    return saveStateAndReturn(controller, agentId, state, encodeAction(0'u8, 0'u8))
+    return saveStateAndReturn(controller, agentId, state, encodeAction(0'u16, 0'u16))
 
   # Handle stopped state - agent remains idle until new command or threshold expires
   if state.stoppedActive:
@@ -426,7 +438,7 @@ proc decideAction*(controller: Controller, env: Environment, agentId: int): uint
     else:
       # Still stopped - return NOOP
       setAuditBranch(BranchStopped)
-      return saveStateAndReturn(controller, agentId, state, encodeAction(0'u8, 0'u8))
+      return saveStateAndReturn(controller, agentId, state, encodeAction(0'u16, 0'u16))
 
   # Update shared threat map with what this agent can see
   # Only if threat response is enabled for this difficulty level
@@ -485,6 +497,13 @@ proc decideAction*(controller: Controller, env: Environment, agentId: int): uint
     state.scoutExploreRadius = ObservationRadius.int32 + 5
     state.scoutLastEnemySeenStep = -100  # Long ago
 
+  # Auto-reassign monks to Fighter role for monk-specific behavior (relic collection,
+  # healing, conversion). Monks trained from Gatherer/Builder-role villagers would
+  # otherwise lack FighterMonk behavior entirely.
+  if agent.unitClass == UnitMonk and state.role != Fighter:
+    let roleId = scriptedState.coreRoleIds[Fighter]
+    setAgentRole(agentId, state, roleId)
+
   if agent.unitClass == UnitGoblin:
     # Count relics held by goblins using thingsByKind[Agent] filtered for goblins
     # This is still O(agents_in_nearby_cells) but avoids scanning ALL 1000 agents
@@ -494,7 +513,7 @@ proc decideAction*(controller: Controller, env: Environment, agentId: int): uint
         totalRelicsHeld += other.inventoryRelic
     if totalRelicsHeld >= MapRoomObjectsRelics and env.thingsByKind[Relic].len == 0:
       setAuditBranch(BranchGoblinRelic)
-      return saveStateAndReturn(controller, agentId, state, encodeAction(0'u8, 0'u8))
+      return saveStateAndReturn(controller, agentId, state, encodeAction(0'u16, 0'u16))
 
     # Use spatial index to find nearest non-goblin threat instead of scanning all agents
     var nearestThreat: Thing = nil
@@ -530,7 +549,7 @@ proc decideAction*(controller: Controller, env: Environment, agentId: int): uint
     let relic = env.findNearestThingSpiral(state, Relic)
     if not isNil(relic):
       setAuditBranch(BranchGoblinSearch)
-      return actOrMove(controller, env, agent, agentId, state, relic.pos, 3'u8)
+      return actOrMove(controller, env, agent, agentId, state, relic.pos, 3'u16)
 
     setAuditBranch(BranchGoblinSearch)
     return controller.moveNextSearch(env, agent, agentId, state)
@@ -615,7 +634,7 @@ proc decideAction*(controller: Controller, env: Environment, agentId: int): uint
           state.escapeMode = false
         state.lastPosition = agent.pos
         setAuditBranch(BranchEscape)
-        return saveStateAndReturn(controller, agentId, state, encodeAction(1'u8, vecToOrientation(d).uint8))
+        return saveStateAndReturn(controller, agentId, state, encodeAction(1'u16, vecToOrientation(d).uint8))
     # If all blocked, drop out of escape for this tick
     state.escapeMode = false
 
@@ -630,7 +649,7 @@ proc decideAction*(controller: Controller, env: Environment, agentId: int): uint
   let attackDir = findAttackOpportunity(env, agent)
   if attackDir >= 0:
     setAuditBranch(BranchAttackOpportunity)
-    return saveStateAndReturn(controller, agentId, state, encodeAction(2'u8, attackDir.uint8))
+    return saveStateAndReturn(controller, agentId, state, encodeAction(2'u16, attackDir.uint8))
 
   # Patrol behavior - applies to all roles when patrol is active
   if state.patrolActive and state.patrolPoint1.x >= 0 and state.patrolPoint2.x >= 0:
@@ -638,7 +657,7 @@ proc decideAction*(controller: Controller, env: Environment, agentId: int): uint
     let patrolAttackDir = findAttackOpportunity(env, agent, ignoreStance = true)
     if patrolAttackDir >= 0:
       setAuditBranch(BranchPatrolChase)
-      return saveStateAndReturn(controller, agentId, state, encodeAction(2'u8, patrolAttackDir.uint8))
+      return saveStateAndReturn(controller, agentId, state, encodeAction(2'u16, patrolAttackDir.uint8))
     # Chase nearby enemies (patrol overrides stance for chasing too)
     let enemy = fighterFindNearbyEnemy(controller, env, agent, state)
     if not isNil(enemy):
@@ -663,11 +682,25 @@ proc decideAction*(controller: Controller, env: Environment, agentId: int): uint
     return controller.moveTo(env, agent, agentId, state, target)
 
   # Rally point behavior - newly trained units move toward their rally destination
+  # Units wait briefly at rally point for others to arrive, creating natural grouping
   if agent.rallyTarget.x >= 0:
-    if chebyshevDist(agent.pos, agent.rallyTarget) <= 1'i32:
-      # Arrived at rally point - clear it
-      agent.rallyTarget = ivec2(-1, -1)
+    if chebyshevDist(agent.pos, agent.rallyTarget) <= 2'i32:
+      # At rally point - wait for nearby allies to group up before clearing
+      let teamId = getTeamId(agent)
+      let nearbyAllies = countAlliesInRangeSpatial(env, agent.pos, teamId, 4, agent.agentId)
+      let stepsAtRally = env.currentStep - state.rallyArrivalStep
+      if state.rallyArrivalStep <= 0:
+        state.rallyArrivalStep = env.currentStep
+      # Clear rally after grouping period or if enough allies nearby
+      if stepsAtRally >= RallyWaitSteps or nearbyAllies >= RallyMinGroupSize:
+        agent.rallyTarget = ivec2(-1, -1)
+        state.rallyArrivalStep = 0
+      else:
+        # Hold position at rally point while waiting
+        setAuditBranch(BranchRallyPoint)
+        return saveStateAndReturn(controller, agentId, state, 0'u16)
     else:
+      state.rallyArrivalStep = 0
       setAuditBranch(BranchRallyPoint)
       return controller.moveTo(env, agent, agentId, state, agent.rallyTarget)
 
@@ -689,15 +722,19 @@ proc decideAction*(controller: Controller, env: Environment, agentId: int): uint
       let amAttackDir = findAttackOpportunity(env, agent, ignoreStance = true)
       if amAttackDir >= 0:
         setAuditBranch(BranchAttackMoveEngage)
-        return saveStateAndReturn(controller, agentId, state, encodeAction(2'u8, amAttackDir.uint8))
+        return saveStateAndReturn(controller, agentId, state, encodeAction(2'u16, amAttackDir.uint8))
       # Check for nearby enemies to chase toward
       let enemy = fighterFindNearbyEnemy(controller, env, agent, state)
       if not isNil(enemy):
         let enemyDist = int(chebyshevDist(agent.pos, enemy.pos))
         if enemyDist <= 8:  # Attack-move detection radius
+          # When outnumbered, wait for allies to approach before engaging
+          if shouldWaitForAllies(env, agent):
+            setAuditBranch(BranchAttackMoveAdvance)
+            return saveStateAndReturn(controller, agentId, state, 0'u16)
           # Enemy found - engage!
           setAuditBranch(BranchAttackMoveEngage)
-          return actOrMove(controller, env, agent, agentId, state, enemy.pos, 2'u8)
+          return actOrMove(controller, env, agent, agentId, state, enemy.pos, 2'u16)
       # No enemy nearby - continue moving toward destination
       setAuditBranch(BranchAttackMoveAdvance)
       return controller.moveTo(env, agent, agentId, state, state.attackMoveTarget)
@@ -706,7 +743,7 @@ proc decideAction*(controller: Controller, env: Environment, agentId: int): uint
   # This check is high priority - settlers skip gather/build/fight but keep threat response.
   if agent.isSettler and agent.settlerTarget.x >= 0 and not agent.settlerArrived:
     let settlerAction = optSettlerMigrate(controller, env, agent, agentId, state)
-    if settlerAction != 0'u8:
+    if settlerAction != 0'u16:
       setAuditBranch(BranchSettlerMigrate)
       return saveStateAndReturn(controller, agentId, state, settlerAction)
     # If optSettlerMigrate returned 0 (arrived or aborted), fall through to normal behavior
@@ -747,6 +784,90 @@ proc decideAction*(controller: Controller, env: Environment, agentId: int): uint
   let action = decideRoleFromCatalog(controller, env, agent, agentId, state)
   return saveStateAndReturn(controller, agentId, state, action)
 
+proc isAgentReassignable(state: AgentState, agent: Thing): bool =
+  ## Check if an agent is idle enough to be reassigned to a different role.
+  ## Agents in active combat, patrol, attack-move, etc. should not be disrupted.
+  if state.patrolActive: return false
+  if state.attackMoveTarget.x >= 0: return false
+  if state.stoppedActive: return false
+  if state.scoutActive: return false
+  if state.holdPositionActive: return false
+  if state.followActive: return false
+  if state.guardActive: return false
+  if state.fighterEnemyAgentId >= 0: return false
+  if agent.isSettler and agent.settlerTarget.x >= 0: return false
+  # Don't reassign non-villager units (military units keep their role)
+  if agent.unitClass != UnitVillager: return false
+  true
+
+proc reassignRolesForPhase(controller: Controller, env: Environment) =
+  ## Periodically re-evaluate role assignments based on game phase.
+  ## Reassigns idle agents from over-represented roles to under-represented ones.
+  let gameProgress = if env.config.maxSteps > 0:
+    env.currentStep.float / env.config.maxSteps.float
+  else:
+    0.0
+  let (targetGatherers, targetBuilders) = if gameProgress < EarlyGameThreshold:
+    (EarlyGameGatherers, EarlyGameBuilders)
+  elif gameProgress < LateGameThreshold:
+    (MidGameGatherers, MidGameBuilders)
+  else:
+    (LateGameGatherers, LateGameBuilders)
+  for teamId in 0 ..< MapRoomObjectsTeams:
+    # Count current role distribution for this team
+    var counts: array[AgentRole, int]
+    var reassignable: array[AgentRole, seq[int]]
+    for role in AgentRole:
+      reassignable[role] = @[]
+
+    let teamStart = teamId * MapAgentsPerTeam
+    let teamEnd = teamStart + MapAgentsPerTeam
+    for agentId in teamStart ..< teamEnd:
+      if not controller.agentsInitialized[agentId]: continue
+      let agent = env.agents[agentId]
+      if not isAgentAlive(env, agent): continue
+      let state = controller.agents[agentId]
+      let role = state.role
+      counts[role] += 1
+      if isAgentReassignable(state, agent):
+        reassignable[role].add agentId
+
+    # Compute target counts proportional to alive agents (scale from 6-slot ratio)
+    let totalAlive = counts[Gatherer] + counts[Builder] + counts[Fighter]
+    if totalAlive < 2: continue  # Too few agents to reassign
+
+    let wantGatherers = (totalAlive * targetGatherers + 3) div 6
+    let wantBuilders = (totalAlive * targetBuilders + 3) div 6
+    let wantFighters = totalAlive - wantGatherers - wantBuilders
+
+    # Identify surplus and deficit roles
+    var surplus: array[AgentRole, int]
+    surplus[Gatherer] = counts[Gatherer] - wantGatherers
+    surplus[Builder] = counts[Builder] - wantBuilders
+    surplus[Fighter] = counts[Fighter] - wantFighters
+
+    # Reassign from roles with surplus to roles with deficit
+    for targetRole in [Fighter, Builder, Gatherer]:
+      if surplus[targetRole] >= 0: continue  # No deficit
+      var needed = -surplus[targetRole]
+      for sourceRole in [Gatherer, Builder, Fighter]:
+        if needed <= 0: break
+        if surplus[sourceRole] <= 0: continue  # No surplus
+        let available = min(needed, min(surplus[sourceRole], reassignable[sourceRole].len))
+        for i in 0 ..< available:
+          let agentId = reassignable[sourceRole][reassignable[sourceRole].len - 1 - i]
+          let roleId = scriptedState.coreRoleIds[targetRole]
+          if roleId < 0: continue
+          setAgentRole(agentId, controller.agents[agentId], roleId)
+          # Set stance for new fighters
+          if targetRole == Fighter:
+            let agent = env.agents[agentId]
+            if agent.stance == StanceNoAttack:
+              agent.stance = StanceDefensive
+        surplus[sourceRole] -= available
+        surplus[targetRole] += available
+        needed -= available
+
 # Compatibility function for updateController
 proc updateController*(controller: Controller, env: Environment) =
   initScriptedState(controller)
@@ -778,6 +899,13 @@ proc updateController*(controller: Controller, env: Environment) =
       scriptedState.scoredAtStep = true
   if ScriptedTempleAssignEnabled:
     processTempleHybridRequests(controller, env)
+  # Periodically evaluate tribute between allied teams
+  if env.currentStep mod TributeCheckInterval == 0:
+    for teamId in 0 ..< MapRoomObjectsTeams:
+      evaluateTribute(env, teamId)
+  # Periodically re-evaluate role assignments based on game phase
+  if env.currentStep > 0 and env.currentStep mod RoleReassignInterval == 0:
+    reassignRolesForPhase(controller, env)
   # Update adaptive difficulty for teams that have it enabled
   controller.updateAdaptiveDifficulty(env)
   # Check for town splits (AI settlement expansion)

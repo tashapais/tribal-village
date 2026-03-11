@@ -85,22 +85,23 @@ const
 
 # Helper template to reduce nil-check boilerplate for AI controller access
 template withBuiltinAI(body: untyped) =
-  ## Execute body only if globalController is initialized as BuiltinAI.
-  ## Used to guard access to aiController methods.
-  if not isNil(globalController) and globalController.controllerType == BuiltinAI:
+  ## Execute body only if globalController has a BuiltinAI controller.
+  ## Used to guard access to aiController methods. Also matches HybridAI.
+  if not isNil(globalController) and globalController.controllerType in {BuiltinAI, HybridAI}:
     body
 
 type
   ControllerType* = enum
     BuiltinAI,      # Use built-in Nim AI controller
-    ExternalNN      # Use external neural network (Python)
+    ExternalNN,     # Use external neural network (Python)
+    HybridAI        # BuiltinAI runs, but Python can override non-NOOP actions
 
   AgentController* = ref object
     controllerType*: ControllerType
     # Built-in AI controller (when using BuiltinAI)
     aiController*: Controller
     # External action callback (when using ExternalNN)
-    externalActionCallback*: proc(): array[MapAgents, uint8]
+    externalActionCallback*: proc(): array[MapAgents, uint16]
 
 # Global agent controller instance
 var globalController*: AgentController
@@ -124,17 +125,25 @@ proc initGlobalController*(controllerType: ControllerType, seed: int = int(nowSe
     )
     # Start automatic play mode for external controller
     play = true
+  of HybridAI:
+    # BuiltinAI drives behavior, but external actions can override non-NOOP
+    globalController = AgentController(
+      controllerType: HybridAI,
+      aiController: newController(seed),
+      externalActionCallback: nil
+    )
+    play = true
 
-proc setExternalActionCallback*(callback: proc(): array[MapAgents, uint8]) =
+proc setExternalActionCallback*(callback: proc(): array[MapAgents, uint16]) =
   ## Set the external action callback for neural network control
-  if not isNil(globalController) and globalController.controllerType == ExternalNN:
+  if not isNil(globalController) and globalController.controllerType in {ExternalNN, HybridAI}:
     globalController.externalActionCallback = callback
 
-proc getActions*(env: Environment): array[MapAgents, uint8] =
+proc getActions*(env: Environment): array[MapAgents, uint16] =
   ## Get actions for all agents using the configured controller
   case globalController.controllerType
   of BuiltinAI:
-    var actions: array[MapAgents, uint8]
+    var actions: array[MapAgents, uint16]
     let controller = globalController.aiController
 
     when defined(stepTiming):
@@ -188,13 +197,13 @@ proc getActions*(env: Environment): array[MapAgents, uint8] =
       try:
         let lines = readFile(ActionsFile).replace("\r", "").replace("\n\n", "\n").split("\n")
         if lines.len >= MapAgents:
-          var fileActions: array[MapAgents, uint8]
+          var fileActions: array[MapAgents, uint16]
           for i in 0 ..< MapAgents:
             let parts = lines[i].split(',')
             if parts.len >= 2:
-              fileActions[i] = encodeAction(parseInt(parts[0]).uint8, parseInt(parts[1]).uint8)
+              fileActions[i] = encodeAction(parseInt(parts[0]).uint16, parseInt(parts[1]).uint16)
             elif parts.len == 1 and parts[0].len > 0:
-              fileActions[i] = parseInt(parts[0]).uint8
+              fileActions[i] = parseInt(parts[0]).uint16
 
           discard tryRemoveFile(ActionsFile)
 
@@ -202,9 +211,22 @@ proc getActions*(env: Environment): array[MapAgents, uint8] =
       except CatchableError:
         discard
 
-  echo "❌ FATAL ERROR: ExternalNN controller configured but no callback or actions file found!"
-  echo "Python environment must call setExternalActionCallback() or provide " & ActionsFile & "!"
-  raise newException(ValueError, "ExternalNN controller has no actions - Python communication failed!")
+    echo "❌ FATAL ERROR: ExternalNN controller configured but no callback or actions file found!"
+    echo "Python environment must call setExternalActionCallback() or provide " & ActionsFile & "!"
+    raise newException(ValueError, "ExternalNN controller has no actions - Python communication failed!")
+  of HybridAI:
+    # BuiltinAI drives all behavior, but external actions override non-NOOP
+    var actions: array[MapAgents, uint16]
+    let controller = globalController.aiController
+
+    # Get builtin AI actions first
+    for i in 0 ..< env.agents.len:
+      setAuditBranch(BranchInactive)
+      actions[i] = controller.decideAction(env, i)
+
+    controller.updateController(env)
+    printAuditSummary(env.currentStep.int)
+    return actions
 
 # Attack-Move API
 # These functions allow external code to set attack-move targets for agents.

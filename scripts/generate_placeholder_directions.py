@@ -7,6 +7,9 @@ These are placeholders - proper AI-generated sprites should replace them.
 from pathlib import Path
 from PIL import Image
 
+from script_paths import DATA_DIR
+from sprite_transforms import apply_transforms
+
 # Units that need direction sprites
 CASTLE_UNIQUE_UNITS = [
     "cataphract",
@@ -32,6 +35,15 @@ DIRECTIONS = ["n", "s", "e", "w", "ne", "nw", "se", "sw"]
 # - se = flip of sw
 # - nw = same as n or slight modification
 # - ne = flip of nw
+DIRECTION_TRANSFORMS: dict[str, tuple[str, ...]] = {
+    "n": ("copy",),
+    "e": ("copy",),
+    "w": ("flip_x",),
+    "ne": ("copy",),
+    "nw": ("flip_x",),
+    "se": ("copy",),
+    "sw": ("flip_x",),
+}
 
 
 def generate_placeholder(src_path: Path, dst_path: Path, direction: str) -> bool:
@@ -39,39 +51,19 @@ def generate_placeholder(src_path: Path, dst_path: Path, direction: str) -> bool
     if dst_path.exists():
         return False  # Already exists
 
+    if direction not in DIRECTION_TRANSFORMS:
+        return False
+
     with Image.open(src_path) as img:
         img = img.convert("RGBA")
-
-        if direction == "n":
-            # North: same as south (placeholder - ideally would be back view)
-            result = img.copy()
-        elif direction == "e":
-            # East: keep as-is (right-facing)
-            result = img.copy()
-        elif direction == "w":
-            # West: flip horizontal (left-facing)
-            result = img.transpose(Image.FLIP_LEFT_RIGHT)
-        elif direction == "ne":
-            # Northeast: keep as-is (slight right)
-            result = img.copy()
-        elif direction == "nw":
-            # Northwest: flip horizontal
-            result = img.transpose(Image.FLIP_LEFT_RIGHT)
-        elif direction == "se":
-            # Southeast: keep as-is
-            result = img.copy()
-        elif direction == "sw":
-            # Southwest: flip horizontal
-            result = img.transpose(Image.FLIP_LEFT_RIGHT)
-        else:
-            return False
+        result = apply_transforms(img, DIRECTION_TRANSFORMS[direction])
 
         result.save(dst_path)
         return True
 
 
-def main():
-    data_dir = Path(__file__).parent.parent / "data" / "oriented"
+def main() -> None:
+    data_dir = DATA_DIR / "oriented"
 
     generated = 0
     skipped = 0

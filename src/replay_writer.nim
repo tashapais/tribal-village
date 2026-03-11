@@ -127,7 +127,7 @@ proc ensureReplayObject(writer: ReplayWriter, thing: Thing): ReplayObject =
     writer.objects[objectId - 1] = replayObj
   writer.objects[objectId - 1]
 
-proc maybeLogReplayStep*(env: Environment, actions: ptr array[MapAgents, uint8]) =
+proc maybeLogReplayStep*(env: Environment, actions: ptr array[MapAgents, uint16]) =
   let writer = replayWriter
   if writer.isNil or not writer.active:
     return

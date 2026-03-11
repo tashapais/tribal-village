@@ -6,14 +6,18 @@
 
 import
   boxy, pixie, vmath,
-  common, constants, environment
+  common, environment
 
 # Import sprite helper procs from renderer_core
-import renderer_core
+import renderer_core, label_cache
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 
 const
+  # Mathematical constants
+  Pi = 3.14159265'f32              # π for trigonometric calculations
+  TwoPi = 6.28318530'f32           # 2π for full-cycle sine waves
+
   # Building smoke/chimney effect constants
   SmokeParticleCount = 3           # Number of smoke particles per building
   SmokeParticleScale = 1.0 / 500.0 # Smaller than sprites for wispy look
@@ -21,6 +25,12 @@ const
   SmokeMaxHeight = 1.2             # How high particles rise
   SmokeAnimSpeed = 12              # Frames per animation cycle
   SmokeDriftAmount = 0.15          # Horizontal drift amplitude
+  SmokeMaxAlpha = 0.6'f32          # Maximum opacity for smoke particles
+  SmokeExpansionRate = 0.5'f32     # How much particles expand as they rise
+  SmokeGrayVariation = 0.1'f32     # Gray tint variation per particle
+  SmokeDriftFrameRate = 0.05'f32   # Frame-based phase contribution to drift
+  SmokeDriftPhaseRate = 0.1'f32    # Phase offset contribution to drift
+  SmokeDriftParticleSpread = 2.1'f32 # Per-particle phase spread for drift variety
 
   # Weather effect constants
   WeatherParticleDensity = 0.015   # Particles per tile (0.015 = ~1 particle per 67 tiles)
@@ -32,98 +42,159 @@ const
   RainCycleFrames = 48             # Frames for one full rain cycle
   RainAlpha = 0.5'f32              # Rain particle opacity
   RainStreakLength = 3             # Number of particles per streak
+  RainPatchTileSize = 18           # World-space cell size for localized rainy patches
+  RainPatchChancePercent = 48      # Chance a weather cell contains a raining cloud
+  RainPatchMinRadius = 4.0'f32     # Minimum rain patch radius (tiles)
+  RainPatchRadiusJitter = 3.0'f32  # Additional radius variation
+  RainCloudPuffCount = 4           # Cloud puffs per active patch
+  RainCloudAlpha = 0.16'f32        # Cloud puff opacity
+  RainCloudScale = 1.0 / 130.0     # Cloud puff sprite scale
+  RainCloudMinDist = 0.15'f32      # Minimum cloud puff distance from center
+  RainCloudYOffsetMult = 0.75'f32  # Cloud Y offset radius multiplier
+  RainCloudYJitterMult = 0.18'f32  # Cloud Y sine jitter amplitude
+  RainCloudAlphaBase = 0.75'f32    # Cloud puff alpha variation base
+  RainPatchDriftSpeed = 0.004'f32  # Rain patch drift animation speed
+  RainPatchDriftPhaseJitter = 0.1'f32 # Phase offset jitter per cell
+  RainPatchDriftXAmplitude = 0.7'f32  # X drift amplitude in tiles
+  RainPatchDriftYFreqMult = 0.73'f32  # Y drift frequency multiplier
+  RainPatchDriftYAmplitude = 0.35'f32 # Y drift amplitude in tiles
+  RainXSpreadMult = 0.9'f32        # X noise spread as fraction of radius
+  RainYStartOffset = 1.15'f32      # Rain starts this far above patch center
+  RainYNoiseMult = 0.35'f32        # Y noise spread as fraction of radius
+  RainFallDistMult = 2.25'f32      # Fall distance multiplier relative to radius
+  RainFallDistBase = 2.0'f32       # Base fall distance in tiles
+  RainEllipseYMult = 1.2'f32       # Y axis ellipse multiplier for containment
+  RainEllipseThreshold = 1.35'f32  # Ellipse boundary cutoff for containment
+  RainBlueBase = 0.7'f32           # Base blue channel for rain color
+  RainStreakSpacingMult = 2.0'f32   # Streak particle spacing multiplier
 
   # Wind constants
   WindBlowSpeed = 0.18'f32         # World units per frame (horizontal)
   WindDriftSpeed = 0.02'f32        # Vertical drift
   WindCycleFrames = 64             # Frames for one full wind cycle
   WindAlpha = 0.35'f32             # Wind particle opacity (subtle)
+  WindDriftAmplitude = 4.0'f32     # Vertical drift amplitude multiplier
+
+  # Snow constants
+  SnowFallSpeed = 0.08'f32         # World units per frame (slow descent)
+  SnowDriftSpeed = 0.04'f32        # Horizontal sway amplitude
+  SnowDriftFreq = 0.03'f32         # Sway frequency (slow sinusoidal)
+  SnowCycleFrames = 96             # Frames for one full snow cycle (slower than rain)
+  SnowAlpha = 0.7'f32              # Snow particle opacity (visible white)
+  SnowParticleScale = 1.0 / 500.0  # Small snowflake particles
+
+  # Weather viewport margin (tiles beyond edge to render particles)
+  WeatherViewportMargin = 2.0'f32  # Extra margin around viewport for seamless edges
+  WeatherViewportClipMargin = 1.0'f32 # Clip margin for wind particle culling
+  RainFallbackRadiusExtra = 1.5'f32 # Extra radius added to fallback rain patch
+  RainNoiseCenterOffset = 0.5'f32  # Center offset for y-axis noise distribution
 
   # Damage number rendering constants
   DamageNumberFontPath = "data/Inter-Regular.ttf"
   DamageNumberFontSize: float32 = 28
   DamageNumberFloatHeight: float32 = 0.8  # World units to float upward
+  DamageNumberOutlineWidth = 2.0'f32       # Outline stroke width for damage labels
+  DamageNumberLabelScale = 1.0 / 200.0     # World-space scale for damage labels
+
+  # Projectile trail constants
+  ProjectileTrailMaxAlpha = 0.7'f32  # Max opacity for trail points (70%)
+  ProjectileTrailMinScale = 0.5'f32  # Trail shrinks to 50% at tail end
+
+  # Debris particle constants
+  DebrisParticleScale = 1.0 / 350.0  # Slightly smaller than projectiles
+
+  # Spawn effect constants
+  SpawnEffectScaleMin = 0.3'f32      # Starting scale fraction (30%)
+  SpawnEffectScaleRange = 0.7'f32    # Scale range from min to full (70%)
+  SpawnEffectMaxAlpha = 0.6'f32      # Max alpha to avoid being too bright
+  SpawnEffectRotationSpeed = TwoPi   # Full rotation over effect lifetime
+
+  # Gather sparkle constants
+  GatherSparkleScale = 1.0 / 450.0   # Small sparkle particles
+  GatherSparkleMaxAlpha = 0.8'f32    # Max sparkle opacity
+  GatherSparkleScaleMin = 0.5'f32    # Min scale fraction
+
+  # Construction dust constants
+  ConstructionDustScale = 1.0 / 400.0 # Scale for dust particles
+  ConstructionDustMaxAlpha = 0.5'f32  # Max dust opacity
+  ConstructionDustScaleBase = 0.7'f32 # Base scale fraction
+  ConstructionDustScaleRange = 0.3'f32 # Scale variation range
+
+  # Unit trail constants
+  UnitTrailScale = 1.0 / 500.0       # Small trail dots
+  UnitTrailMaxAlpha = 0.4'f32        # Trail max opacity
+
+  # Walking dust constants
+  WalkingDustScale = 1.0 / 600.0     # Small walking dust particles
+  WalkingDustMaxAlpha = 0.6'f32      # Max walking dust opacity
+  WalkingDustScaleMin = 0.5'f32      # Min scale fraction
+
+  # Water ripple constants
+  RippleScaleMin = 0.2'f32           # Starting ripple scale (20%)
+  RippleScaleRange = 0.8'f32         # Ripple scale range (80%)
+  RippleMaxAlpha = 0.5'f32           # Max ripple opacity (subtle)
+
+  # Attack impact constants
+  AttackImpactScale = 1.0 / 400.0    # Impact particle scale
+  AttackImpactMaxAlpha = 0.9'f32     # Impact max opacity (punchy)
+  AttackImpactScaleMin = 0.3'f32     # Min scale fraction
+  AttackImpactScaleRange = 0.7'f32   # Scale range
+
+  # Conversion effect constants
+  ConversionPulseFreq = 2.0'f32      # Number of pulses over lifetime
+  ConversionAlphaBlend = 0.8'f32     # Alpha multiplier for color blending
+  ConversionBaseScale = 1.0 / 400.0  # Base scale for conversion ring
+  ConversionExpandMult = 1.5'f32     # Expansion multiplier as effect fades
+  ConversionAlphaBase = 0.5'f32      # Base alpha contribution (before pulse modulation)
+  ConversionAlphaPulseRange = 0.5'f32 # Additional alpha from pulse (0 to this value)
 
 # ─── Damage Number Cache ─────────────────────────────────────────────────────
 
-import tables
-
-var
-  damageNumberImages: Table[string, string] = initTable[string, string]()
-  damageNumberSizes: Table[string, IVec2] = initTable[string, IVec2]()
-
-template setupCtxFont(ctx: untyped, fontPath: string, fontSize: float32) =
-  ctx.font = fontPath
-  ctx.fontSize = fontSize
-  ctx.textBaseline = TopBaseline
-
-proc renderDamageNumberLabel(text: string, textColor: Color): (Image, IVec2) =
-  ## Render a damage number label with outline for visibility.
-  let fontSize = DamageNumberFontSize
-  let padding = 2.0'f32
-  var measureCtx = newContext(1, 1)
-  setupCtxFont(measureCtx, DamageNumberFontPath, fontSize)
-  let w = max(1, (measureCtx.measureText(text).width + padding * 2).int)
-  let h = max(1, (fontSize + padding * 2).int)
-  var ctx = newContext(w, h)
-  setupCtxFont(ctx, DamageNumberFontPath, fontSize)
-  # Draw outline for visibility
-  ctx.fillStyle.color = color(0, 0, 0, 0.6)
-  for dx in -1 .. 1:
-    for dy in -1 .. 1:
-      if dx != 0 or dy != 0:
-        ctx.fillText(text, vec2(padding + dx.float32, padding + dy.float32))
-  ctx.fillStyle.color = textColor
-  ctx.fillText(text, vec2(padding, padding))
-  result = (ctx.image, ivec2(w, h))
-
 proc getDamageNumberLabel(amount: int, kind: DamageNumberKind): (string, IVec2) =
   ## Get or create a cached damage number label image.
+  let textColor = case kind
+    of DmgNumDamage: DmgColorDamage
+    of DmgNumHeal: DmgColorHeal
+    of DmgNumCritical: DmgColorCritical
   let prefix = case kind
     of DmgNumDamage: "d"
     of DmgNumHeal: "h"
     of DmgNumCritical: "c"
-  let cacheKey = prefix & $amount
-  if cacheKey in damageNumberImages:
-    return (damageNumberImages[cacheKey], damageNumberSizes[cacheKey])
-  # Create new label with appropriate color
-  let textColor = case kind
-    of DmgNumDamage: color(1.0, 0.3, 0.3, 1.0)    # Red
-    of DmgNumHeal: color(0.3, 1.0, 0.3, 1.0)      # Green
-    of DmgNumCritical: color(1.0, 0.8, 0.2, 1.0)  # Yellow/gold
-  let text = $amount
-  let (image, size) = renderDamageNumberLabel(text, textColor)
-  let imageKey = "dmgnum_" & cacheKey
-  bxy.addImage(imageKey, image)
-  damageNumberImages[cacheKey] = imageKey
-  damageNumberSizes[cacheKey] = size
-  return (imageKey, size)
+  let style = labelStyleOutlined(DamageNumberFontPath, DamageNumberFontSize,
+                                  DamageNumberOutlineWidth, textColor)
+  let cached = ensureLabel("dmgnum", prefix & $amount, style)
+  return (cached.imageKey, cached.size)
 
 # ─── Projectile Constants ────────────────────────────────────────────────────
 
 const
+  # Projectile scale constants (inverse divisor for sprite rendering)
+  ProjArrowScale = (1.0 / 400.0).float32      # Small arrow
+  ProjLongbowScale = (1.0 / 380.0).float32    # Slightly larger arrow
+  ProjJanissaryScale = (1.0 / 350.0).float32  # Medium projectile
+  ProjTowerArrowScale = (1.0 / 380.0).float32 # Tower arrow (small)
+  ProjCastleArrowScale = (1.0 / 350.0).float32 # Castle arrow (medium)
+  ProjMangonelScale = (1.0 / 280.0).float32   # Large siege projectile
+  ProjTrebuchetScale = (1.0 / 240.0).float32  # Very large siege projectile
+
   ProjectileColors: array[ProjectileKind, Color] = [
-    color(0.6, 0.4, 0.2, 1.0),     # ProjArrow - brown
-    color(0.9, 0.9, 0.3, 1.0),     # ProjBolt - yellow
-    color(0.7, 0.5, 0.3, 1.0),     # ProjJavelin - tan
-    color(0.4, 0.4, 0.4, 1.0),     # ProjStone - gray
-    color(1.0, 0.5, 0.1, 1.0),     # ProjFireball - orange
-    color(1.0, 0.3, 0.1, 1.0),     # ProjBurningArrow - red-orange
-    color(0.8, 0.1, 0.8, 1.0),     # ProjMonkBolt - purple
-    color(0.9, 0.8, 0.2, 1.0),     # ProjCannonball - gold
-    color(0.5, 0.5, 0.5, 1.0),     # ProjTrebuchet - dark gray
+    ProjArrowColor,       # ProjArrow - brown
+    ProjLongbowColor,     # ProjLongbow - darker brown
+    ProjJanissaryColor,   # ProjJanissary - yellow
+    ProjTowerArrowColor,  # ProjTowerArrow - brown
+    ProjCastleArrowColor, # ProjCastleArrow - tan
+    ProjMangonelColor,    # ProjMangonel - gray
+    ProjTrebuchetColor,   # ProjTrebuchet - dark gray
   ]
 
   ProjectileScales: array[ProjectileKind, float32] = [
-    (1.0 / 400.0).float32,  # ProjArrow - small
-    (1.0 / 380.0).float32,  # ProjBolt - slightly larger
-    (1.0 / 350.0).float32,  # ProjJavelin - medium
-    (1.0 / 320.0).float32,  # ProjStone - medium-large
-    (1.0 / 300.0).float32,  # ProjFireball - large
-    (1.0 / 380.0).float32,  # ProjBurningArrow - small
-    (1.0 / 350.0).float32,  # ProjMonkBolt - medium
-    (1.0 / 280.0).float32,  # ProjCannonball - large
-    (1.0 / 240.0).float32,  # ProjTrebuchet - large
+    ProjArrowScale,        # ProjArrow - small
+    ProjLongbowScale,      # ProjLongbow - slightly larger
+    ProjJanissaryScale,    # ProjJanissary - medium
+    ProjTowerArrowScale,   # ProjTowerArrow - small
+    ProjCastleArrowScale,  # ProjCastleArrow - medium
+    ProjMangonelScale,     # ProjMangonel - large
+    ProjTrebuchetScale,    # ProjTrebuchet - very large
   ]
 
   ProjectileTrailPoints = 5     # Number of trail segments behind projectile
@@ -132,9 +203,9 @@ const
 # ─── Debris Constants ────────────────────────────────────────────────────────
 
 const DebrisColors: array[DebrisKind, Color] = [
-  color(0.55, 0.35, 0.15, 1.0),  # DebrisWood - brown
-  color(0.50, 0.50, 0.50, 1.0),  # DebrisStone - gray
-  color(0.70, 0.40, 0.25, 1.0),  # DebrisBrick - terracotta/orange-brown
+  DebrisWoodColor,   # DebrisWood - brown
+  DebrisStoneColor,  # DebrisStone - gray
+  DebrisBrickColor,  # DebrisBrick - terracotta/orange-brown
 ]
 
 # ─── Effect Drawing Procedures ───────────────────────────────────────────────
@@ -155,20 +226,20 @@ proc drawBuildingSmoke*(buildingPos: Vec2, buildingId: int) =
     let rise = t * t * SmokeMaxHeight
 
     # Horizontal drift using sine wave for gentle swaying
-    let driftPhase = (frame.float32 * 0.05 + phase.float32 * 0.1 + i.float32 * 2.1)
+    let driftPhase = (frame.float32 * SmokeDriftFrameRate + phase.float32 * SmokeDriftPhaseRate + i.float32 * SmokeDriftParticleSpread)
     let drift = sin(driftPhase) * SmokeDriftAmount * t
 
     # Position particle above building
     let particlePos = buildingPos + vec2(drift, SmokeBaseHeight - rise)
 
     # Fade out as particle rises (full opacity at start, transparent at top)
-    let alpha = (1.0 - t) * 0.6
+    let alpha = (1.0 - t) * SmokeMaxAlpha
 
     # Slight size variation based on rise (particles expand as they rise)
-    let sizeScale = SmokeParticleScale * (1.0 + t * 0.5)
+    let sizeScale = SmokeParticleScale * (1.0 + t * SmokeExpansionRate)
 
     # Gray-white smoke color with slight variation per particle
-    let grayVal = 0.7 + (i.float32 * 0.1)
+    let grayVal = SmokeBaseGray + (i.float32 * SmokeGrayVariation)
     let smokeTint = color(grayVal, grayVal, grayVal, alpha)
 
     bxy.drawImage("floor", particlePos, angle = 0, scale = sizeScale, tint = smokeTint)
@@ -200,9 +271,9 @@ proc drawProjectiles*() =
         srcY * trailT + tgtY * (1.0 - trailT))
       # Fade opacity and shrink scale for older trail points
       let fadeRatio = 1.0 - (i + 1).float32 / (ProjectileTrailPoints + 1).float32
-      let trailAlpha = c.a * fadeRatio * 0.7  # Max 70% opacity for trails
-      let trailScale = sc * (0.5 + 0.5 * fadeRatio)  # Shrink to 50% at tail
-      let trailColor = color(c.r, c.g, c.b, trailAlpha)
+      let trailAlpha = c.a * fadeRatio * ProjectileTrailMaxAlpha
+      let trailScale = sc * (ProjectileTrailMinScale + ProjectileTrailMinScale * fadeRatio)
+      let trailColor = withAlpha(c, trailAlpha)
       bxy.drawImage("floor", trailPos, angle = 0, scale = trailScale, tint = trailColor)
 
     # Draw projectile head at current position
@@ -226,9 +297,9 @@ proc drawDamageNumbers*() =
     let alpha = t * t  # Quadratic ease for smoother fade
     let (imageKey, _) = getDamageNumberLabel(dmg.amount, dmg.kind)
     # Scale for world-space rendering (similar to HP bars)
-    let scale = 1.0 / 200.0
+    let scale = DamageNumberLabelScale
     bxy.drawImage(imageKey, worldPos, angle = 0, scale = scale,
-                  tint = color(1.0, 1.0, 1.0, alpha))
+                  tint = withAlpha(TintWhite, alpha))
 
 proc drawRagdolls*() =
   ## Draw ragdoll death bodies with physics-based tumbling.
@@ -258,7 +329,7 @@ proc drawRagdolls*() =
     let alpha = t * t
     # Get team color with alpha applied
     let teamColor = getTeamColor(env, ragdoll.teamId)
-    let tint = color(teamColor.r, teamColor.g, teamColor.b, alpha)
+    let tint = withAlpha(teamColor, alpha)
     # Draw with rotation
     bxy.drawImage(spriteKey, ragdoll.pos, angle = ragdoll.angle, scale = SpriteScale, tint = tint)
 
@@ -279,9 +350,9 @@ proc drawDebris*() =
     # Fade out
     let alpha = t * t  # Quadratic ease for smoother fade
     let baseColor = DebrisColors[deb.kind]
-    let tintColor = color(baseColor.r, baseColor.g, baseColor.b, alpha)
+    let tintColor = withAlpha(baseColor, alpha)
     # Draw as small colored dot using floor sprite
-    let scale = (1.0 / 350.0).float32  # Slightly smaller than projectiles
+    let scale = DebrisParticleScale.float32
     bxy.drawImage("floor", deb.pos, angle = 0, scale = scale, tint = tintColor)
 
 proc drawSpawnEffects*() =
@@ -296,12 +367,14 @@ proc drawSpawnEffects*() =
     let t = effect.countdown.float32 / effect.lifetime.float32
     let progress = 1.0 - t  # 0.0 at spawn, 1.0 at expire
     # Expand from small to large as effect progresses
-    let baseScale = SpriteScale * (0.3 + progress * 0.7)  # 30% to 100%
+    let baseScale = SpriteScale * (SpawnEffectScaleMin + progress * SpawnEffectScaleRange)
     # Fade out with quadratic ease (bright at start, fades smoothly)
-    let alpha = t * t * 0.6  # Max alpha 0.6 to not be too bright
+    let alpha = t * t * SpawnEffectMaxAlpha
+    # Rotate during expansion for visual flair
+    let rotation = progress * SpawnEffectRotationSpeed
     # Use a bright cyan/white tint for spawn effect
-    let tint = color(0.6, 0.9, 1.0, alpha)
-    bxy.drawImage("floor", effect.pos.vec2, angle = 0, scale = baseScale, tint = tint)
+    let tint = withAlpha(SpawnEffectTint, alpha)
+    bxy.drawImage("floor", effect.pos.vec2, angle = rotation, scale = baseScale, tint = tint)
 
 proc drawGatherSparkles*() =
   ## Draw sparkle particles when workers collect resources.
@@ -318,11 +391,11 @@ proc drawGatherSparkles*() =
     # Calculate progress (1.0 at spawn, 0.0 at expire)
     let t = sparkle.countdown.float32 / sparkle.lifetime.float32
     # Fade out with quadratic ease
-    let alpha = t * t * 0.8
+    let alpha = t * t * GatherSparkleMaxAlpha
     # Golden sparkle color
-    let tintColor = color(1.0, 0.85, 0.3, alpha)
+    let tintColor = withAlpha(GatherSparkleTint, alpha)
     # Small particles
-    let scale = (1.0 / 450.0).float32 * (0.5 + t * 0.5)
+    let scale = GatherSparkleScale.float32 * (GatherSparkleScaleMin + t * GatherSparkleScaleMin)
     bxy.drawImage("floor", sparkle.pos, angle = 0, scale = scale, tint = tintColor)
 
 proc drawConstructionDust*() =
@@ -340,11 +413,11 @@ proc drawConstructionDust*() =
     # Calculate progress
     let t = dust.countdown.float32 / dust.lifetime.float32
     # Fade out
-    let alpha = t * t * 0.5
+    let alpha = t * t * ConstructionDustMaxAlpha
     # Dusty brown color
-    let tintColor = color(0.7, 0.6, 0.4, alpha)
+    let tintColor = withAlpha(ConstructionDustTint, alpha)
     # Particles that grow slightly as they rise
-    let scale = (1.0 / 400.0).float32 * (0.7 + (1.0 - t) * 0.3)
+    let scale = ConstructionDustScale.float32 * (ConstructionDustScaleBase + (1.0 - t) * ConstructionDustScaleRange)
     bxy.drawImage("floor", dust.pos, angle = 0, scale = scale, tint = tintColor)
 
 proc drawUnitTrails*() =
@@ -362,13 +435,42 @@ proc drawUnitTrails*() =
     # Calculate progress
     let t = trail.countdown.float32 / trail.lifetime.float32
     # Fade out quickly
-    let alpha = t * t * 0.4
+    let alpha = t * t * UnitTrailMaxAlpha
     # Light team-colored trail
     let teamColor = getTeamColor(env, trail.teamId)
-    let tintColor = color(teamColor.r, teamColor.g, teamColor.b, alpha)
+    let tintColor = withAlpha(teamColor, alpha)
     # Small trail dots
-    let scale = (1.0 / 500.0).float32
+    let scale = UnitTrailScale.float32
     bxy.drawImage("floor", trail.pos, angle = 0, scale = scale, tint = tintColor)
+
+proc drawDustParticles*() =
+  ## Draw dust particles kicked up by walking units.
+  ## Color varies based on terrain type.
+  if not currentViewport.valid:
+    return
+  for dust in env.dustParticles:
+    if dust.lifetime <= 0:
+      continue
+    # Check viewport bounds
+    let ipos = ivec2(dust.pos.x.int32, dust.pos.y.int32)
+    if not isInViewport(ipos):
+      continue
+    # Calculate progress (1.0 at spawn, 0.0 at expire)
+    let t = dust.countdown.float32 / dust.lifetime.float32
+    # Fade out with quadratic ease
+    let alpha = t * t * WalkingDustMaxAlpha
+    # Color based on terrain type
+    let dustBase = case dust.terrainColor
+      of 0: DustSandColor
+      of 1: DustSnowColor
+      of 2: DustMudColor
+      of 3: DustGrassColor
+      of 4: DustRoadColor
+      else: DustDefaultColor
+    let tintColor = withAlpha(dustBase, alpha)
+    # Small particles that shrink slightly as they fade
+    let scale = WalkingDustScale.float32 * (WalkingDustScaleMin + t * WalkingDustScaleMin)
+    bxy.drawImage("floor", dust.pos, angle = 0, scale = scale, tint = tintColor)
 
 proc drawWaterRipples*() =
   ## Draw ripple effects when units walk through water.
@@ -386,11 +488,11 @@ proc drawWaterRipples*() =
     let t = ripple.countdown.float32 / ripple.lifetime.float32
     let progress = 1.0 - t  # 0.0 at spawn, 1.0 at expire
     # Expand from small to large as effect progresses
-    let baseScale = SpriteScale * (0.2 + progress * 0.8)  # 20% to 100%
+    let baseScale = SpriteScale * (RippleScaleMin + progress * RippleScaleRange)
     # Fade out with quadratic ease (visible at start, fades smoothly)
-    let alpha = t * t * 0.5  # Max alpha 0.5 for subtle effect
+    let alpha = t * t * RippleMaxAlpha
     # Use a light cyan/blue tint for water ripple
-    let tint = color(0.5, 0.7, 0.9, alpha)
+    let tint = withAlpha(RippleTint, alpha)
     bxy.drawImage("floor", ripple.pos, angle = 0, scale = baseScale, tint = tint)
 
 proc drawAttackImpacts*() =
@@ -408,11 +510,11 @@ proc drawAttackImpacts*() =
     # Calculate progress (1.0 at spawn, 0.0 at expire)
     let t = impact.countdown.float32 / impact.lifetime.float32
     # Fade out quickly with quadratic ease for punchy effect
-    let alpha = t * t * 0.9
+    let alpha = t * t * AttackImpactMaxAlpha
     # Orange/red impact color for combat feedback
-    let tintColor = color(1.0, 0.5, 0.2, alpha)
+    let tintColor = withAlpha(AttackImpactTint, alpha)
     # Small particles that shrink as they fade
-    let scale = (1.0 / 400.0).float32 * (0.3 + t * 0.7)  # 30% to 100%
+    let scale = AttackImpactScale.float32 * (AttackImpactScaleMin + t * AttackImpactScaleRange)
     bxy.drawImage("floor", impact.pos, angle = 0, scale = scale, tint = tintColor)
 
 proc drawConversionEffects*() =
@@ -430,21 +532,21 @@ proc drawConversionEffects*() =
     # Calculate progress (1.0 at spawn, 0.0 at expire)
     let t = effect.countdown.float32 / effect.lifetime.float32
     # Pulsing effect: sine wave for divine/spiritual feel (2 pulses over lifetime)
-    let pulse = (sin(t * 6.28318 * 2.0) + 1.0) * 0.5  # 0 to 1
+    let pulse = (sin(t * TwoPi * ConversionPulseFreq) + 1.0) * 0.5  # 0 to 1
     # Fade out over time with pulsing intensity
-    let alpha = t * (0.5 + pulse * 0.5)
+    let alpha = t * (ConversionAlphaBase + pulse * ConversionAlphaPulseRange)
     # Blend between golden divine color and team color
-    let golden = color(0.95, 0.85, 0.35, alpha)
+    let golden = withAlpha(ConversionGoldenTint, alpha)
     let teamAlpha = effect.teamColor
     let blendT = 1.0 - t  # More team color as time progresses
     let tintColor = color(
       golden.r * (1.0 - blendT) + teamAlpha.r * blendT,
       golden.g * (1.0 - blendT) + teamAlpha.g * blendT,
       golden.b * (1.0 - blendT) + teamAlpha.b * blendT,
-      alpha * 0.8)
+      alpha * ConversionAlphaBlend)
     # Draw expanding ring effect
-    let baseScale = (1.0 / 400.0).float32
-    let expandScale = baseScale * (1.0 + (1.0 - t) * 1.5)  # Expands as it fades
+    let baseScale = ConversionBaseScale.float32
+    let expandScale = baseScale * (1.0 + (1.0 - t) * ConversionExpandMult)
     bxy.drawImage("floor", effect.pos, angle = 0, scale = expandScale, tint = tintColor)
 
 proc drawWeatherEffects*() =
@@ -462,42 +564,118 @@ proc drawWeatherEffects*() =
 
   case settings.weatherType
   of WeatherRain:
-    # Rain particles falling diagonally with slight drift
-    for i in 0 ..< particleCount:
-      # Use deterministic positioning based on particle index and frame
+    type RainPatch = object
+      center: Vec2
+      radius: float32
+      seed: uint32
+
+    proc mix32(v: uint32): uint32 {.inline.} =
+      ## Small deterministic mixer for stable world-space weather cells.
+      var x = v
+      x = x xor (x shr 16)
+      x *= 2246822519'u32
+      x = x xor (x shr 13)
+      x *= 3266489917'u32
+      x = x xor (x shr 16)
+      x
+
+    var rainPatches: seq[RainPatch] = @[]
+    let minCellX = max(0, currentViewport.minX div RainPatchTileSize - 1)
+    let maxCellX = min((MapWidth - 1) div RainPatchTileSize, currentViewport.maxX div RainPatchTileSize + 1)
+    let minCellY = max(0, currentViewport.minY div RainPatchTileSize - 1)
+    let maxCellY = min((MapHeight - 1) div RainPatchTileSize, currentViewport.maxY div RainPatchTileSize + 1)
+    let viewportMinX = currentViewport.minX.float32 - WeatherViewportMargin
+    let viewportMaxX = currentViewport.maxX.float32 + WeatherViewportMargin
+    let viewportMinY = currentViewport.minY.float32 - WeatherViewportMargin
+    let viewportMaxY = currentViewport.maxY.float32 + WeatherViewportMargin
+
+    for cellX in minCellX .. maxCellX:
+      for cellY in minCellY .. maxCellY:
+        let rawSeed = uint32(cellX + 1) * 374761393'u32 +
+                      uint32(cellY + 1) * 668265263'u32 +
+                      uint32(env.gameSeed) * 2246822519'u32
+        let cellSeed = mix32(rawSeed)
+        if int(cellSeed mod 100'u32) >= RainPatchChancePercent:
+          continue
+
+        let cellOffsetX = (mix32(cellSeed xor 0xA511E9B3'u32) mod 1000'u32).float32 / 1000.0
+        let cellOffsetY = (mix32(cellSeed xor 0x63D5A993'u32) mod 1000'u32).float32 / 1000.0
+        let baseCenter = vec2(
+          (cellX.float32 + cellOffsetX) * RainPatchTileSize.float32,
+          (cellY.float32 + cellOffsetY) * RainPatchTileSize.float32
+        )
+
+        let driftPhase = frame.float32 * RainPatchDriftSpeed + (cellSeed mod 97'u32).float32 * RainPatchDriftPhaseJitter
+        let drift = vec2(sin(driftPhase) * RainPatchDriftXAmplitude, cos(driftPhase * RainPatchDriftYFreqMult) * RainPatchDriftYAmplitude)
+        let center = baseCenter + drift
+        let radiusNoise = (mix32(cellSeed xor 0x9E3779B9'u32) mod 1000'u32).float32 / 1000.0
+        let radius = RainPatchMinRadius + radiusNoise * RainPatchRadiusJitter
+
+        # Skip patches fully outside viewport.
+        if center.x + radius < viewportMinX or center.x - radius > viewportMaxX or
+           center.y + radius < viewportMinY or center.y - radius > viewportMaxY:
+          continue
+
+        rainPatches.add(RainPatch(center: center, radius: radius, seed: cellSeed))
+
+    if rainPatches.len == 0:
+      let fallbackCenter = vec2(
+        (currentViewport.minX + viewWidth div 2).float32,
+        (currentViewport.minY + viewHeight div 2).float32)
+      rainPatches.add(RainPatch(center: fallbackCenter, radius: RainPatchMinRadius + RainFallbackRadiusExtra, seed: 1'u32))
+
+    # Draw translucent cloud puffs above active rain patches.
+    for patch in rainPatches:
+      for puffIdx in 0 ..< RainCloudPuffCount:
+        let puffSeed = mix32(patch.seed + uint32((puffIdx + 1) * 101))
+        let angle = (puffSeed mod 628'u32).float32 / 100.0
+        let dist = patch.radius * (RainCloudMinDist + ((puffSeed shr 11) mod 55'u32).float32 / 100.0)
+        let cloudPos = patch.center + vec2(cos(angle) * dist, -patch.radius * RainCloudYOffsetMult + sin(angle) * RainCloudYJitterMult)
+        let scaleNoise = ((puffSeed shr 7) mod 40'u32).float32 / 100.0
+        let alphaNoise = ((puffSeed shr 17) mod 30'u32).float32 / 100.0
+        let cloudScale = RainCloudScale * (1.0 + scaleNoise)
+        let cloudAlpha = RainCloudAlpha * (RainCloudAlphaBase + alphaNoise)
+        bxy.drawImage("floor", cloudPos, angle = 0, scale = cloudScale,
+                      tint = withAlpha(CloudPuffTint, cloudAlpha))
+
+    let rainParticleCount = max(particleCount, rainPatches.len * 10)
+
+    # Rain particles fall within active cloud patch ellipses (localized storms).
+    for i in 0 ..< rainParticleCount:
       let seed = i * 17 + 31
+      let patch = rainPatches[seed mod rainPatches.len]
       let cycleOffset = (seed * 7) mod RainCycleFrames
       let cycleFrame = (frame + cycleOffset) mod RainCycleFrames
       let t = cycleFrame.float32 / RainCycleFrames.float32
 
-      # Horizontal position: spread across viewport with some variation
-      let xBase = currentViewport.minX.float32 +
-                  ((seed * 13) mod (viewWidth * 100)).float32 / 100.0
+      let xNoise = ((seed * 13) mod 2000).float32 / 1000.0 - 1.0
+      let yNoise = ((seed * 29) mod 1000).float32 / 1000.0 - RainNoiseCenterOffset
+      let xBase = patch.center.x + xNoise * patch.radius * RainXSpreadMult
+      let yBase = patch.center.y - patch.radius * RainYStartOffset + yNoise * patch.radius * RainYNoiseMult
       let xDrift = t * RainDriftSpeed * RainCycleFrames.float32
-
-      # Vertical position: cycle from top to bottom of viewport
-      let yBase = currentViewport.minY.float32 - 2.0  # Start above viewport
-      let yFall = t * RainFallSpeed * RainCycleFrames.float32
-
+      let yFall = t * (patch.radius * RainFallDistMult + RainFallDistBase)
       let particlePos = vec2(xBase + xDrift, yBase + yFall)
 
-      # Skip if outside viewport (with margin)
-      if particlePos.y < currentViewport.minY.float32 - 1.0 or
-         particlePos.y > currentViewport.maxY.float32 + 1.0:
+      # Keep rain localized to the patch footprint.
+      let normX = (particlePos.x - patch.center.x) / max(0.1, patch.radius)
+      let normY = (particlePos.y - patch.center.y) / max(0.1, patch.radius * RainEllipseYMult)
+      if normX * normX + normY * normY > RainEllipseThreshold:
         continue
 
-      # Rain color: light blue-white with some variation
-      let blueVal = 0.7 + ((seed * 3) mod 30).float32 / 100.0
-      let rainTint = color(0.8, 0.85, blueVal, RainAlpha)
+      if particlePos.x < viewportMinX or particlePos.x > viewportMaxX or
+         particlePos.y < viewportMinY or particlePos.y > viewportMaxY:
+        continue
 
-      # Draw rain streak (multiple particles in a line)
+      let blueVal = RainBlueBase + ((seed * 3) mod 30).float32 / 100.0
+      let rainTint = color(RainBaseR, RainBaseG, blueVal, RainAlpha)
+
       for s in 0 ..< RainStreakLength:
         let streakOffset = vec2(
-          -RainDriftSpeed * s.float32 * 2.0,
-          -RainFallSpeed * s.float32 * 2.0
+          -RainDriftSpeed * s.float32 * RainStreakSpacingMult,
+          -RainFallSpeed * s.float32 * RainStreakSpacingMult
         )
         let streakAlpha = RainAlpha * (1.0 - s.float32 / RainStreakLength.float32)
-        let streakTint = color(rainTint.r, rainTint.g, rainTint.b, streakAlpha)
+        let streakTint = withAlpha(rainTint, streakAlpha)
         bxy.drawImage("floor", particlePos + streakOffset, angle = 0,
                       scale = WeatherParticleScale, tint = streakTint)
 
@@ -512,25 +690,59 @@ proc drawWeatherEffects*() =
       # Vertical position: spread across viewport
       let yBase = currentViewport.minY.float32 +
                   ((seed * 19) mod (viewHeight * 100)).float32 / 100.0
-      let yDrift = sin(t * 3.14159 * 2.0) * WindDriftSpeed * 4.0
+      let yDrift = sin(t * Pi * 2.0) * WindDriftSpeed * WindDriftAmplitude
 
       # Horizontal position: cycle from left to right of viewport
-      let xBase = currentViewport.minX.float32 - 2.0  # Start left of viewport
+      let xBase = currentViewport.minX.float32 - WeatherViewportMargin  # Start left of viewport
       let xBlow = t * WindBlowSpeed * WindCycleFrames.float32
 
       let particlePos = vec2(xBase + xBlow, yBase + yDrift)
 
       # Skip if outside viewport
-      if particlePos.x < currentViewport.minX.float32 - 1.0 or
-         particlePos.x > currentViewport.maxX.float32 + 1.0:
+      if particlePos.x < currentViewport.minX.float32 - WeatherViewportClipMargin or
+         particlePos.x > currentViewport.maxX.float32 + WeatherViewportClipMargin:
         continue
 
       # Wind color: gray-white with variation
-      let grayVal = 0.7 + ((seed * 5) mod 20).float32 / 100.0
+      let grayVal = SmokeBaseGray + ((seed * 5) mod 20).float32 / 100.0
       let windTint = color(grayVal, grayVal, grayVal, WindAlpha)
 
       bxy.drawImage("floor", particlePos, angle = 0,
                     scale = WeatherParticleScale, tint = windTint)
+
+  of WeatherSnow:
+    # Snow particles drifting gently downward with sinusoidal sway
+    for i in 0 ..< particleCount:
+      let seed = i * 19 + 53
+      let cycleOffset = (seed * 11) mod SnowCycleFrames
+      let cycleFrame = (frame + cycleOffset) mod SnowCycleFrames
+      let t = cycleFrame.float32 / SnowCycleFrames.float32
+
+      # Horizontal position: spread across viewport with sinusoidal sway
+      let xBase = currentViewport.minX.float32 +
+                  ((seed * 17) mod (viewWidth * 100)).float32 / 100.0
+      let xSway = sin((frame.float32 + seed.float32) * SnowDriftFreq) * SnowDriftSpeed *
+                  SnowCycleFrames.float32
+
+      # Vertical position: fall from top to bottom of viewport
+      let yBase = currentViewport.minY.float32 - WeatherViewportMargin
+      let yFall = t * SnowFallSpeed * SnowCycleFrames.float32
+
+      let particlePos = vec2(xBase + xSway, yBase + yFall)
+
+      # Skip if outside viewport
+      if particlePos.x < currentViewport.minX.float32 - WeatherViewportClipMargin or
+         particlePos.x > currentViewport.maxX.float32 + WeatherViewportClipMargin or
+         particlePos.y < currentViewport.minY.float32 - WeatherViewportMargin or
+         particlePos.y > currentViewport.maxY.float32 + WeatherViewportMargin:
+        continue
+
+      # White snowflake with slight size variation
+      let sizeVar = 1.0 + ((seed * 3) mod 40).float32 / 100.0
+      let snowTint = color(1.0, 1.0, 1.0, SnowAlpha)
+
+      bxy.drawImage("floor", particlePos, angle = 0,
+                    scale = SnowParticleScale * sizeVar, tint = snowTint)
 
   of WeatherNone:
     discard  # No weather effects

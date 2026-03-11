@@ -260,7 +260,7 @@ Instruments agent decision-making loops to identify slow AI evaluations.
 
 Example usage:
 ```bash
-TV_AI_TIMING=1 TV_AI_TIMING_INTERVAL=50 nim r -d:stepTiming -d:release --path:src src/tribal_village.nim
+TV_AI_TIMING=1 TV_AI_TIMING_INTERVAL=50 nim r -d:stepTiming -d:release --path:src tribal_village.nim
 ```
 
 The report shows:
@@ -368,11 +368,11 @@ When enabled, outputs one line per frame with the following metrics (all times i
 ```bash
 # Capture baseline:
 TV_PERF_SAVE_BASELINE=baselines/baseline.json \
-  nim c -r -d:perfRegression -d:release --path:src scripts/perf_baseline.nim
+  nim c -r -d:perfRegression -d:release --path:src scripts/benchmark_steps.nim
 
 # Check for regressions:
 TV_PERF_BASELINE=baselines/baseline.json TV_PERF_FAIL_ON_REGRESSION=1 \
-  nim c -r -d:perfRegression -d:release --path:src scripts/perf_baseline.nim
+  nim c -r -d:perfRegression -d:release --path:src scripts/benchmark_steps.nim
 ```
 
 ## Compile-Time Flags
@@ -399,7 +399,7 @@ Useful for identifying performance bottlenecks in specific subsystems.
 
 **Usage:**
 ```bash
-nim r -d:stepTiming -d:release --path:src src/tribal_village.nim
+nim r -d:stepTiming -d:release --path:src tribal_village.nim
 ```
 
 **Environment variables:**
@@ -412,7 +412,7 @@ nim r -d:stepTiming -d:release --path:src src/tribal_village.nim
 **Example:**
 ```bash
 TV_STEP_TIMING=100 TV_STEP_TIMING_WINDOW=50 \
-  nim r -d:stepTiming -d:release --path:src src/tribal_village.nim
+  nim r -d:stepTiming -d:release --path:src tribal_village.nim
 ```
 
 This will output detailed per-phase timing (in milliseconds) for steps 100-150, showing
@@ -428,7 +428,7 @@ they choose. Useful for debugging AI behavior and understanding agent decision p
 
 **Usage:**
 ```bash
-nim r -d:aiAudit -d:release --path:src src/tribal_village.nim
+nim r -d:aiAudit -d:release --path:src tribal_village.nim
 ```
 
 **Environment variables:**
@@ -439,7 +439,7 @@ nim r -d:aiAudit -d:release --path:src src/tribal_village.nim
 
 **Example:**
 ```bash
-TV_AI_LOG=1 nim r -d:aiAudit -d:release --path:src src/tribal_village.nim
+TV_AI_LOG=1 nim r -d:aiAudit -d:release --path:src tribal_village.nim
 ```
 
 **Output (summary mode, every 50 steps):**
@@ -458,7 +458,7 @@ how actions are distributed across the simulation.
 
 **Usage:**
 ```bash
-nim r -d:actionAudit -d:release --path:src src/tribal_village.nim
+nim r -d:actionAudit -d:release --path:src tribal_village.nim
 ```
 
 **Environment variables:**
@@ -469,7 +469,7 @@ nim r -d:actionAudit -d:release --path:src src/tribal_village.nim
 
 **Example:**
 ```bash
-TV_ACTION_AUDIT_INTERVAL=50 nim r -d:actionAudit -d:release --path:src src/tribal_village.nim
+TV_ACTION_AUDIT_INTERVAL=50 nim r -d:actionAudit -d:release --path:src tribal_village.nim
 ```
 
 **Output:**
@@ -487,7 +487,7 @@ Useful for understanding which unit types are performing which actions.
 
 **Usage:**
 ```bash
-nim r -d:actionFreqCounter -d:release --path:src src/tribal_village.nim
+nim r -d:actionFreqCounter -d:release --path:src tribal_village.nim
 ```
 
 **Environment variables:**
@@ -498,7 +498,7 @@ nim r -d:actionFreqCounter -d:release --path:src src/tribal_village.nim
 
 **Example:**
 ```bash
-TV_ACTION_FREQ_INTERVAL=50 nim r -d:actionFreqCounter -d:release --path:src src/tribal_village.nim
+TV_ACTION_FREQ_INTERVAL=50 nim r -d:actionFreqCounter -d:release --path:src tribal_village.nim
 ```
 
 **Output:**
@@ -523,7 +523,7 @@ Multiple audit flags can be combined for comprehensive analysis:
 
 ```bash
 nim r -d:stepTiming -d:aiAudit -d:actionAudit -d:actionFreqCounter \
-  -d:release --path:src src/tribal_village.nim
+  -d:release --path:src tribal_village.nim
 ```
 
 Set environment variables to control output verbosity:
@@ -533,7 +533,7 @@ TV_AI_LOG=1 \
 TV_ACTION_AUDIT_INTERVAL=100 \
 TV_ACTION_FREQ_INTERVAL=100 \
   nim r -d:stepTiming -d:aiAudit -d:actionAudit -d:actionFreqCounter \
-  -d:release --path:src src/tribal_village.nim
+  -d:release --path:src tribal_village.nim
 ```
 
 **Note:** When compiled without these flags (`-d:actionAudit`, etc.), the audit code is

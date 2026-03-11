@@ -127,9 +127,6 @@ Fallback nested loops exist for rare large-radius queries but are not hit during
 ### Running the Profilers
 
 ```bash
-# nimprof (call stack profiling)
-nim r --profiler:on --stackTrace:on -d:release --path:src scripts/profile_step_detail.nim
-
 # Benchmark with subsystem timing
 TV_PERF_STEPS=1000 nim r -d:release -d:perfRegression --path:src scripts/benchmark_steps.nim
 

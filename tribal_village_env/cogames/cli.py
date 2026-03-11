@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Annotated, Literal
 
 import typer
 from rich.console import Console
@@ -24,7 +24,7 @@ def attach_train_command(
     *,
     command_name: str = "train-tribal",
     require_cogames: bool = True,
-    console_fallback: Optional[Console] = None,
+    console_fallback: Console | None = None,
 ) -> bool:
     try:
         console, get_policy_spec, policy_arg_example, resolve_training_device = (
@@ -39,52 +39,43 @@ def attach_train_command(
             )
         return False
 
-    opt = typer.Option  # shorthand
+    # -----------------------------------------------------------------------
+    # Annotated option type aliases (defined after lazy import for policy_arg_example)
+    # -----------------------------------------------------------------------
+    PolicyOpt = Annotated[str, typer.Option("--policy", "-p", help=f"Policy ({policy_arg_example})")]
+    CheckpointsOpt = Annotated[Path, typer.Option("--checkpoints", help="Path to save training data")]
+    StepsOpt = Annotated[int, typer.Option("--steps", "-s", help="Number of training steps", min=1)]
+    DeviceOpt = Annotated[str, typer.Option("--device", help="Device to train on (e.g. 'auto', 'cpu', 'cuda')")]
+    SeedOpt = Annotated[int, typer.Option("--seed", help="Seed for training", min=0)]
+    BatchSizeOpt = Annotated[int, typer.Option("--batch-size", help="Batch size for training", min=1)]
+    MinibatchSizeOpt = Annotated[int, typer.Option("--minibatch-size", help="Minibatch size for training", min=1)]
+    NumWorkersOpt = Annotated[int | None, typer.Option("--num-workers", help="Number of worker processes", min=1)]
+    ParallelEnvsOpt = Annotated[int | None, typer.Option("--parallel-envs", help="Number of parallel environments", min=1)]
+    VectorBatchSizeOpt = Annotated[int | None, typer.Option("--vector-batch-size", help="Override vectorized environment batch size", min=1)]
+    EpisodeStepsOpt = Annotated[int, typer.Option("--episode-steps", help="Episode length", min=1)]
+    RenderScaleOpt = Annotated[int, typer.Option("--render-scale", help="Scale factor for rendered frames", min=1)]
+    RenderModeOpt = Annotated[Literal["ansi", "rgb_array"], typer.Option("--render-mode", help="Rendering mode")]
+    LogOutputsOpt = Annotated[bool, typer.Option("--log-outputs", help="Log training outputs")]
 
     @app.command(
         name=command_name, help="Train a policy on the Tribal Village environment"
     )
     def train_tribal_cmd(  # noqa: PLR0913 - CLI surface mirrors cogames train
         ctx: typer.Context,
-        policy: str = opt(
-            "class=tribal", "--policy", "-p", help=f"Policy ({policy_arg_example})"
-        ),  # noqa: B008
-        checkpoints_path: Path = opt(
-            Path("./train_dir"), "--checkpoints", help="Path to save training data"
-        ),  # noqa: B008
-        steps: int = opt(
-            10_000_000, "--steps", "-s", help="Number of training steps", min=1
-        ),  # noqa: B008
-        device: str = opt(
-            "auto", "--device", help="Device to train on (e.g. 'auto', 'cpu', 'cuda')"
-        ),  # noqa: B008
-        seed: int = opt(42, "--seed", help="Seed for training", min=0),  # noqa: B008
-        batch_size: int = opt(
-            4096, "--batch-size", help="Batch size for training", min=1
-        ),  # noqa: B008
-        minibatch_size: int = opt(
-            4096, "--minibatch-size", help="Minibatch size for training", min=1
-        ),  # noqa: B008
-        num_workers: Optional[int] = opt(
-            None, "--num-workers", help="Number of worker processes", min=1
-        ),  # noqa: B008
-        parallel_envs: Optional[int] = opt(
-            64, "--parallel-envs", help="Number of parallel environments", min=1
-        ),  # noqa: B008
-        vector_batch_size: Optional[int] = opt(  # noqa: B008
-            None,
-            "--vector-batch-size",
-            help="Override vectorized environment batch size",
-            min=1,
-        ),
-        max_steps: int = opt(1000, "--episode-steps", help="Episode length", min=1),  # noqa: B008
-        render_scale: int = opt(
-            1, "--render-scale", help="Scale factor for rendered frames", min=1
-        ),  # noqa: B008
-        render_mode: Literal["ansi", "rgb_array"] = opt(
-            "ansi", "--render-mode", help="Rendering mode"
-        ),  # noqa: B008
-        log_outputs: bool = opt(False, "--log-outputs", help="Log training outputs"),  # noqa: B008
+        policy: PolicyOpt = "class=tribal",
+        checkpoints_path: CheckpointsOpt = Path("./train_dir"),  # noqa: B008
+        steps: StepsOpt = 10_000_000,
+        device: DeviceOpt = "auto",
+        seed: SeedOpt = 42,
+        batch_size: BatchSizeOpt = 4096,
+        minibatch_size: MinibatchSizeOpt = 4096,
+        num_workers: NumWorkersOpt = None,
+        parallel_envs: ParallelEnvsOpt = 64,
+        vector_batch_size: VectorBatchSizeOpt = None,
+        max_steps: EpisodeStepsOpt = 1000,
+        render_scale: RenderScaleOpt = 1,
+        render_mode: RenderModeOpt = "ansi",
+        log_outputs: LogOutputsOpt = False,
     ) -> None:
         policy_spec = get_policy_spec(ctx, policy)
         torch_device = resolve_training_device(console, device)
@@ -122,8 +113,4 @@ def attach_train_command(
     return True
 
 
-def register_cli(app: typer.Typer) -> None:
-    attach_train_command(app)
-
-
-__all__ = ["attach_train_command", "register_cli"]
+__all__ = ["attach_train_command"]

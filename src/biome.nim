@@ -64,12 +64,12 @@ type
     clusterFill*: float = 0.85
     clusterProb*: float = 0.9
     jitter*: int = 2
-    waterScatterProb*: float = 0.12
-    pondCountMin*: int = 1
-    pondCountMax*: int = 4
-    pondRadiusMin*: int = 2
-    pondRadiusMax*: int = 5
-    pondTilesPerPond*: int = 1000
+    waterScatterProb*: float = 0.25
+    pondCountMin*: int = 2
+    pondCountMax*: int = 8
+    pondRadiusMin*: int = 3
+    pondRadiusMax*: int = 6
+    pondTilesPerPond*: int = 500
     pondEdgeDitherProb*: float = 0.25
 
 proc clearZoneMask(mask: var MaskGrid, mapWidth, mapHeight: int,

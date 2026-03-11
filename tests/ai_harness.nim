@@ -539,11 +539,11 @@ suite "Mechanics - Construction":
       env.add(a)
       env.terminated[nextId] = 1.0
 
-    var actions: array[MapAgents, uint8]
+    var actions: array[MapAgents, uint16]
     for i in 0 ..< MapAgents:
       actions[i] = 0
-    actions[agent1.agentId] = encodeAction(3'u8, dirIndex(agent1.pos, wall.pos).uint8)
-    actions[agent2.agentId] = encodeAction(3'u8, dirIndex(agent2.pos, wall.pos).uint8)
+    actions[agent1.agentId] = encodeAction(3'u16, dirIndex(agent1.pos, wall.pos).uint16)
+    actions[agent2.agentId] = encodeAction(3'u16, dirIndex(agent2.pos, wall.pos).uint16)
     env.step(addr actions)
 
     # With 2 builders: gain = ConstructionHpPerAction * 1.5 = 1.5, rounded to 2
@@ -1305,7 +1305,7 @@ suite "AI - Scout Behavior":
     let action = controller.decideAction(env, scout.agentId)
 
     # Action should be a move (verb 1)
-    let verb = (action.int div ActionArgumentCount).uint8
+    let verb = (action.int div ActionArgumentCount).uint16
     check verb == 1  # MOVE action
 
   test "scout reports threats to team":

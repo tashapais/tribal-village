@@ -12,21 +12,8 @@
 
 import
   boxy, pixie, vmath, windy, tables,
-  std/[algorithm, math, os, strutils],
-  common, constants, environment, formations, semantic
-
-# Import silky drawing procs directly to avoid operator conflicts from re-exports
-when defined(useSilky):
-  from silky/drawing import nil
-else:
-  # Stub drawing module when silky not available
-  # These procs provide the same signatures as silky/drawing but do nothing
-  type DrawingStub = object
-  var drawing*: DrawingStub
-  proc drawRect*(d: DrawingStub, sk: auto, pos, size: Vec2, color: auto) = discard
-  proc drawImage*(d: DrawingStub, sk: auto, name: string, pos: Vec2, color: auto = rgbx(0,0,0,0)) = discard
-  proc contains*(d: DrawingStub, sk: auto, name: string): bool = false
-  proc getImageSize*(d: DrawingStub, sk: auto, name: string): Vec2 = vec2(0, 0)
+  std/[math, os],
+  common, constants, environment
 
 # Import and re-export sub-modules
 import renderer_core
@@ -71,7 +58,7 @@ proc drawTerrain*() =
   for x in currentViewport.minX .. currentViewport.maxX:
     for y in currentViewport.minY .. currentViewport.maxY:
       let terrain = env.terrain[x][y]
-      if terrain == Water: continue
+      if terrain == Water or terrain == Mountain: continue
       let spriteKey = terrainSpriteKey(terrain)
       if spriteKey.len > 0 and spriteKey in bxy:
         bxy.drawImage(spriteKey, ivec2(x, y).vec2, angle = 0, scale = SpriteScale)
@@ -86,7 +73,7 @@ proc drawWalls*() =
   if not currentViewport.valid:
     return
   var wallFills: seq[IVec2]
-  let wallTint = color(0.3, 0.3, 0.3, 1.0)
+  let wallTint = WallTintColor
   # Only iterate over visible tiles for viewport culling
   for x in currentViewport.minX .. currentViewport.maxX:
     for y in currentViewport.minY .. currentViewport.maxY:
@@ -108,13 +95,15 @@ proc drawWalls*() =
             continue
 
         let wallSpriteKey = wallSprites[tile]
-        bxy.drawImage(wallSpriteKey, vec2(x.float32, y.float32),
-                     angle = 0, scale = SpriteScale, tint = wallTint)
+        if wallSpriteKey in bxy:
+          bxy.drawImage(wallSpriteKey, vec2(x.float32, y.float32),
+                       angle = 0, scale = SpriteScale, tint = wallTint)
 
   let fillSpriteKey = "oriented/wall.fill"
-  for fillPos in wallFills:
-    bxy.drawImage(fillSpriteKey, fillPos.vec2 + vec2(0.5, 0.3),
-                  angle = 0, scale = SpriteScale, tint = wallTint)
+  if fillSpriteKey in bxy:
+    for fillPos in wallFills:
+      bxy.drawImage(fillSpriteKey, fillPos.vec2 + vec2(0.5, 0.3),
+                    angle = 0, scale = SpriteScale, tint = wallTint)
 
 proc drawObjects*() =
   var teamPopCounts: array[MapRoomObjectsTeams, int]
@@ -149,7 +138,7 @@ proc drawObjects*() =
   # Deep water (center of rivers) renders darker, shallow water (edges) renders lighter.
   if renderCacheGeneration != env.mapGeneration:
     rebuildRenderCaches()
-  if waterKey.len > 0:
+  if waterKey.len > 0 and waterKey in bxy:
     # Draw deep water (impassable) with ambient-lit tint
     let waterLit = applyAmbient(1.0, 1.0, 1.0, 1.0, ambient)
     let waterTint = color(waterLit.r * waterLit.i, waterLit.g * waterLit.i, waterLit.b * waterLit.i, 1.0)
@@ -157,11 +146,28 @@ proc drawObjects*() =
       if isInViewport(pos):
         bxy.drawImage(waterKey, pos.vec2, angle = 0, scale = SpriteScale, tint = waterTint)
     # Draw shallow water (passable but slow) with lighter tint to distinguish
-    let shallowLit = applyAmbient(0.6, 0.85, 0.95, 1.0, ambient)
+    let shallowLit = applyAmbient(ShallowWaterBase.r, ShallowWaterBase.g, ShallowWaterBase.b, 1.0, ambient)
     let shallowTint = color(shallowLit.r * shallowLit.i, shallowLit.g * shallowLit.i, shallowLit.b * shallowLit.i, 1.0)
     for pos in shallowWaterPositions:
       if isInViewport(pos):
         bxy.drawImage(waterKey, pos.vec2, angle = 0, scale = SpriteScale, tint = shallowTint)
+
+  # Draw mountain terrain (impassable) with dark gray-brown rocky tint
+  let mountainKey = terrainSpriteKey(Mountain)
+  if mountainKey.len > 0 and mountainKey in bxy:
+    let mountainLit = applyAmbient(MountainBase.r, MountainBase.g, MountainBase.b, 1.0, ambient)
+    let mountainTint = color(mountainLit.r * mountainLit.i, mountainLit.g * mountainLit.i, mountainLit.b * mountainLit.i, 1.0)
+    for pos in mountainPositions:
+      if isInViewport(pos):
+        bxy.drawImage(mountainKey, pos.vec2, angle = 0, scale = SpriteScale, tint = mountainTint)
+
+  # Draw waterfalls (between water and cliffs for proper layering)
+  for kind in WaterfallDrawOrder:
+    let spriteKey = thingSpriteKey(kind)
+    if spriteKey.len > 0 and spriteKey in bxy:
+      for wf in env.thingsByKind[kind]:
+        if isInViewport(wf.pos):
+          bxy.drawImage(spriteKey, wf.pos.vec2, angle = 0, scale = SpriteScale)
 
   for kind in CliffDrawOrder:
     let spriteKey = thingSpriteKey(kind)
@@ -207,7 +213,14 @@ proc drawObjects*() =
     let remaining = getInv(thing, itemKey)
     let ratio = remaining.float32 / maxAmount.float32
     # Scale from DepletionScaleMax (1.0) to DepletionScaleMin (0.5) based on remaining
-    SpriteScale * (DepletionScaleMin + ratio * (DepletionScaleMax - DepletionScaleMin))
+    let depletionScale = SpriteScale * (DepletionScaleMin + ratio * (DepletionScaleMax - DepletionScaleMin))
+    # Per-resource visual normalization so bulky source art does not dominate tile footprint.
+    let visualScale = case thing.kind
+      of Stone, Stalagmite: 0.82'f32
+      of Gold: 0.88'f32
+      of Stump, Stubble: 0.9'f32
+      else: 1.0'f32
+    depletionScale * visualScale
 
   for kind in [Tree, Wheat, Stubble]:
     let spriteKey = thingSpriteKey(kind)
@@ -223,8 +236,8 @@ proc drawObjects*() =
 
   # Draw unit shadows first (before agents, so shadows appear underneath)
   # Light source is NW, so shadows cast to SE (positive X and Y offset)
-  let shadowTint = color(0.0, 0.0, 0.0, ShadowAlpha)
-  let shadowOffset = vec2(ShadowOffsetX, ShadowOffsetY)
+  let shadowTint = ShadowTint
+  let shadowOffset = vec2(constants.ShadowOffsetX, constants.ShadowOffsetY)
   for agent in env.agents:
     if not isAgentAlive(env, agent):
       continue
@@ -276,18 +289,18 @@ proc drawObjects*() =
       elif thingPos.x >= 0 and thingPos.x < MapWidth and thingPos.y >= 0 and thingPos.y < MapHeight:
         let base = env.baseTintColors[thingPos.x][thingPos.y]
         color(base.r, base.g, base.b, 1.0)
-      else: color(1.0, 1.0, 1.0, 1.0)
+      else: TintWhite
     let posVec = thingPos.vec2
     bxy.drawImage("floor", posVec, angle = 0, scale = SpriteScale,
-                  tint = color(altarTint.r, altarTint.g, altarTint.b, 0.35))
+                  tint = withAlpha(altarTint, ResourceIconDimAlpha))
     bxy.drawImage("altar", posVec, angle = 0, scale = SpriteScale,
-                  tint = color(altarTint.r, altarTint.g, altarTint.b, 1.0))
+                  tint = withAlpha(altarTint, 1.0))
     const heartAnchor = vec2(-0.48, -0.64)
     let amt = max(0, thing.hearts)
     let heartPos = posVec + heartAnchor
     if amt == 0:
       bxy.drawImage("heart", heartPos, angle = 0, scale = HeartIconScale,
-                    tint = color(altarTint.r, altarTint.g, altarTint.b, 0.35))
+                    tint = withAlpha(altarTint, ResourceIconDimAlpha))
     elif amt <= HeartPlusThreshold:
       for i in 0 ..< amt:
         bxy.drawImage("heart", heartPos + vec2(0.12 * i.float32, 0.0),
@@ -296,7 +309,7 @@ proc drawObjects*() =
       bxy.drawImage("heart", heartPos, angle = 0, scale = HeartIconScale, tint = altarTint)
       let labelKey = ensureHeartCountLabel(amt)
       bxy.drawImage(labelKey, heartPos + vec2(0.14, -0.08), angle = 0,
-                    scale = HeartCountLabelScale, tint = color(1, 1, 1, 1))
+                    scale = HeartCountLabelScale, tint = TintWhite)
     if isTileFrozen(thingPos, env):
       bxy.drawImage("frozen", posVec, angle = 0, scale = SpriteScale)
 
@@ -337,7 +350,7 @@ proc drawObjects*() =
       let tint = if thing.lanternHealthy:
         let teamId = thing.teamId
         let baseColor = if teamId >= 0 and teamId < env.teamColors.len: env.teamColors[teamId]
-                        else: color(0.6, 0.6, 0.6, 1.0)
+                        else: NeutralGrayLight
         # Multi-wave fire flicker using position-based phase offset for independent animation
         let posHash = (thingPos.x * 73 + thingPos.y * 137).float32
         let wave1 = sin((frame.float32 * LanternFlickerSpeed1) + posHash * 0.1)
@@ -346,7 +359,7 @@ proc drawObjects*() =
         let flicker = 1.0 + LanternFlickerAmplitude * (wave1 * 0.5 + wave2 * 0.3 + wave3 * 0.2)
         color(min(1.2, baseColor.r * flicker), min(1.2, baseColor.g * flicker),
               min(1.2, baseColor.b * flicker), baseColor.a)
-      else: color(0.5, 0.5, 0.5, 1.0)
+      else: NeutralGray
       bxy.drawImage("lantern", thingPos.vec2, angle = 0, scale = SpriteScale, tint = tint)
 
   template isPlacedAt(thing: Thing): bool =
@@ -359,7 +372,7 @@ proc drawObjects*() =
   # ---------------------------------------------------------------------------
   for kind in ThingKind:
     if kind in {Wall, Tree, Wheat, Stubble, Agent, Altar, Tumor, Cow, Bear, Wolf, Lantern} or
-        kind in CliffKinds:
+        kind in CliffKinds or kind in WaterfallKinds:
       continue
     if isBuildingKind(kind):
       let spriteKey = buildingSpriteKey(kind)
@@ -377,10 +390,12 @@ proc drawObjects*() =
             let base = if teamId >= 0 and teamId < env.teamColors.len:
               env.teamColors[teamId]
             else:
-              color(0.6, 0.6, 0.6, 0.9)
-            color(base.r * 0.75 + 0.1, base.g * 0.75 + 0.1, base.b * 0.75 + 0.1, 0.9)
+              NeutralGrayDim
+            color(base.r * BuildingTeamTintMul + BuildingTeamTintAdd,
+                  base.g * BuildingTeamTintMul + BuildingTeamTintAdd,
+                  base.b * BuildingTeamTintMul + BuildingTeamTintAdd, BuildingTeamTintAlpha)
           else:
-            color(1, 1, 1, 1)
+            TintWhite
         # Apply scaffolding effect: desaturate and add transparency when under construction
         let tint = if isUnderConstruction:
           let constructionProgress = thing.hp.float32 / thing.maxHp.float32
@@ -405,6 +420,12 @@ proc drawObjects*() =
 
         # Draw building UI overlays (stockpiles, population, garrison, production queue)
         renderBuildingUI(thing, pos, teamPopCounts, teamHouseCounts)
+
+        # Draw health bar for damaged buildings (not under construction — those show progress bar)
+        if not isUnderConstruction and thing.maxHp > 0 and thing.hp < thing.maxHp:
+          let hpRatio = thing.hp.float32 / thing.maxHp.float32
+          let hpColor = getHealthBarColor(hpRatio)
+          drawSegmentBar(pos.vec2, vec2(0, -0.55), hpRatio, hpColor, BarBgColor)
 
         # Draw frozen overlay if applicable
         if isTileFrozen(pos, env):
@@ -440,10 +461,12 @@ proc drawVisualRanges*(alpha = 0.2) =
 
     # Get the appropriate range based on thing type
     let range = if thing.kind == Agent:
-      thing.attackRange
+      getUnitAttackRange(thing)
     elif isBuildingKind(thing.kind):
-      if thing.kind in {GuardTower, Castle}:
-        thing.attackRange
+      if thing.kind == GuardTower:
+        GuardTowerRange
+      elif thing.kind == Castle:
+        CastleRange
       else:
         0
     else:
@@ -454,7 +477,7 @@ proc drawVisualRanges*(alpha = 0.2) =
 
     let center = thing.pos.vec2
     let teamColor = getTeamColor(env, thing.teamId)
-    let rangeColor = color(teamColor.r, teamColor.g, teamColor.b, alpha)
+    let rangeColor = withAlpha(teamColor, alpha)
 
     # Draw range as filled circles using floor sprites
     let rangeSq = range * range
@@ -480,39 +503,32 @@ proc drawAgentDecorations*() =
     if not isInViewport(pos):
       continue
 
-    # Draw health bar above unit
-    if agent.maxHp > 0 and agent.hp < agent.maxHp:
+    # Draw health bar above unit (always visible for all units)
+    if agent.maxHp > 0:
       let hpRatio = agent.hp.float32 / agent.maxHp.float32
-      let hpAlpha = getHealthBarAlpha(env.currentStep, agent.lastAttackedStep)
+      let hpAlpha = if agent.hp < agent.maxHp:
+        getHealthBarAlpha(env.currentStep, agent.lastAttackedStep)
+      else:
+        HealthBarMinAlpha  # Full HP: show at minimum alpha
       let hpColor = getHealthBarColor(hpRatio)
       drawSegmentBar(pos.vec2, vec2(0, -0.5), hpRatio, hpColor,
-                     color(0.3, 0.3, 0.3, 0.7), 5, hpAlpha)
-
-    # Draw control group badge if assigned
-    if agent.controlGroup >= 0 and agent.controlGroup < 10:
-      let (badgeKey, badgeSize) = ensureControlGroupBadge(agent.controlGroup)
-      if badgeKey.len > 0 and badgeKey in bxy:
-        let badgePos = pos.vec2 + vec2(-0.15, -0.7)
-        bxy.drawImage(badgeKey, badgePos, angle = 0, scale = ControlGroupBadgeScale,
-                      tint = color(1, 1, 1, 0.9))
+                     BarBgColor, 5, hpAlpha)
 
 proc drawGrid*() =
   ## Draw grid lines for tile boundaries.
   if not settings.showGrid or not currentViewport.valid:
     return
 
-  let gridColor = color(0.4, 0.4, 0.4, 0.3)
+  let gridColor = GridLineColor
 
   # Draw vertical lines
   for x in currentViewport.minX .. currentViewport.maxX + 1:
-    let startY = currentViewport.minY.float32
-    let endY = (currentViewport.maxY + 1).float32
     for y in currentViewport.minY .. currentViewport.maxY:
       bxy.drawImage("floor", vec2(x.float32 - 0.5, y.float32), angle = 0,
-                    scale = 1.0 / 800.0, tint = gridColor)
+                    scale = GridLineScale, tint = gridColor)
 
   # Draw horizontal lines
   for y in currentViewport.minY .. currentViewport.maxY + 1:
     for x in currentViewport.minX .. currentViewport.maxX:
       bxy.drawImage("floor", vec2(x.float32, y.float32 - 0.5), angle = 0,
-                    scale = 1.0 / 800.0, tint = gridColor)
+                    scale = GridLineScale, tint = gridColor)

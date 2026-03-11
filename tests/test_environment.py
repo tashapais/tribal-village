@@ -1,37 +1,29 @@
 """Tests for the tribal_village environment."""
 
-import ctypes
-from pathlib import Path
-
-import numpy as np
 import pytest
 
-# Check if Nim library is available
-def _nim_library_available() -> bool:
-    """Check if the compiled Nim library exists."""
+
+# Duplicated from conftest.py for import reliability — pytest doesn't always
+# add tests/ to sys.path, so direct import from conftest can fail.
+try:
+    from conftest import requires_nim_library
+except ImportError:
     import platform
+    from pathlib import Path
 
-    if platform.system() == "Darwin":
-        lib_name = "libtribal_village.dylib"
-    elif platform.system() == "Windows":
-        lib_name = "libtribal_village.dll"
-    else:
-        lib_name = "libtribal_village.so"
+    def _nim_library_available() -> bool:
+        if platform.system() == "Darwin":
+            lib_name = "libtribal_village.dylib"
+        elif platform.system() == "Windows":
+            lib_name = "libtribal_village.dll"
+        else:
+            lib_name = "libtribal_village.so"
+        package_dir = Path(__file__).resolve().parent.parent / "tribal_village_env"
+        return any(p.exists() for p in [package_dir.parent / lib_name, package_dir / lib_name])
 
-    package_dir = Path(__file__).resolve().parent.parent / "tribal_village_env"
-    candidate_paths = [
-        package_dir.parent / lib_name,
-        package_dir / lib_name,
-    ]
-
-    return any(path.exists() for path in candidate_paths)
-
-NIM_LIBRARY_AVAILABLE = _nim_library_available()
-
-requires_nim_library = pytest.mark.skipif(
-    not NIM_LIBRARY_AVAILABLE,
-    reason="Nim library not available"
-)
+    requires_nim_library = pytest.mark.skipif(
+        not _nim_library_available(), reason="Nim library not available"
+    )
 
 
 class TestNimConfig:
@@ -96,9 +88,9 @@ class TestConstants:
             ACTION_SPACE_SIZE,
         )
 
-        assert ACTION_VERB_COUNT == 10
-        assert ACTION_ARGUMENT_COUNT == 25
-        assert ACTION_SPACE_SIZE == 250  # 10 * 25
+        assert ACTION_VERB_COUNT == 11
+        assert ACTION_ARGUMENT_COUNT == 28
+        assert ACTION_SPACE_SIZE == 308  # 11 * 28
 
 
 @requires_nim_library
@@ -132,7 +124,7 @@ class TestTribalVillageEnvIntegration:
         env = TribalVillageEnv()
         assert env.single_observation_space is not None
         assert env.single_action_space is not None
-        assert env.single_action_space.n == 250
+        assert env.single_action_space.n == 308
         env.close()
 
     def test_env_reset(self):

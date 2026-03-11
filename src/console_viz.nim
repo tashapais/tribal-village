@@ -43,6 +43,7 @@ proc terrainBg(t: TerrainType): string =
   of Dune, Sand:               bg(160, 140, 80)
   of Snow:                     bg(200, 200, 210)
   of Mud:                      bg(80, 60, 40)
+  of Mountain:                 bg(60, 55, 50)
   of Empty:                    bg(10, 10, 10)
   of RampUpN, RampUpS, RampUpW, RampUpE,
      RampDownN, RampDownS, RampDownW, RampDownE:
@@ -102,6 +103,8 @@ proc thingChar(kind: ThingKind): char =
      CliffCornerInNE, CliffCornerInSE, CliffCornerInSW, CliffCornerInNW,
      CliffCornerOutNE, CliffCornerOutSE, CliffCornerOutSW, CliffCornerOutNW:
                         '|'
+  of WaterfallN, WaterfallE, WaterfallS, WaterfallW:
+                        '~'
 
 proc unitClassChar(uc: AgentUnitClass): char =
   case uc

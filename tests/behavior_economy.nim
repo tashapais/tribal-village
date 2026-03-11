@@ -76,7 +76,7 @@ suite "Behavioral Economy - Villager Deposits":
     check arg == dirIndex(agentPos, tcPos)
 
     # Execute the action
-    env.stepAction(0, verb.uint8, arg)
+    env.stepAction(0, verb.uint16, arg)
 
     echo fmt"  Agent wood after: {agent.inventoryWood}"
     echo fmt"  Team stockpile wood: {env.stockpileCount(0, ResourceWood)}"

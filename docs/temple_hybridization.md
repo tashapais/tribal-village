@@ -2,7 +2,7 @@
 
 Date: 2026-01-28
 Owner: Design / Gameplay
-Status: Draft
+Status: Active
 
 ## What the Temple Does
 The Temple allows two adjacent villagers to "recombine" into a new villager,

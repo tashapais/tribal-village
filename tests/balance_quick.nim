@@ -32,7 +32,7 @@ proc runQuickGame(seed: int): GameResult =
 
   # NO AI - just run steps with no-op actions for speed
   # This tests that the game engine runs without crashing
-  var noopActions: array[MapAgents, uint8]
+  var noopActions: array[MapAgents, uint16]
   for i in 0 ..< MapAgents:
     noopActions[i] = 0  # ActionNone
 

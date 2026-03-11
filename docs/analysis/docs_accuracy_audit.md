@@ -145,19 +145,19 @@ MarketSellPriceDecrease* = 3  # Price decrease per sell transaction
 
 ## Files Audited
 
-### Root docs/ (26 files)
+### Root docs/ (26 files audited, 8 since removed)
 - README.md ✅
 - action_space.md ⚠️ (verb count)
-- ai_profiling.md ✅
+- ~~ai_profiling.md~~ 🗑️ removed — content consolidated into `performance_optimization_roadmap.md`
 - ai_system.md ✅
 - architecture.md ✅
 - asset_pipeline.md ✅
-- aoe2_design_plan.md ✅
-- audit_orphaned_branches.md ✅
+- ~~aoe2_design_plan.md~~ 🗑️ removed (completed plan, archived then deleted)
+- ~~audit_orphaned_branches.md~~ 🗑️ removed (completed audit, archived then deleted)
 - audit_spatial_systems.md ✅
 - cli_and_debugging.md ✅
 - clippy_tint_freeze.md ✅
-- codex_template.md ✅
+- ~~codex_template.md~~ 🗑️ removed (archived then deleted)
 - combat.md ✅
 - combat_visuals.md ✅
 - configuration.md ✅
@@ -165,19 +165,19 @@ MarketSellPriceDecrease* = 3  # Price decrease per sell transaction
 - economy_respawn.md ⚠️ (market pricing)
 - game_logic.md ✅
 - observation_space.md ✅
-- perf_audit_hotloops.md ✅
+- ~~perf_audit_hotloops.md~~ 🗑️ removed — content consolidated into `performance_optimization_roadmap.md`
 - perf-audit-pathfinding-movement.md ✅
 - population_and_housing.md ✅
 - python_api.md ✅
 - quickstart.md ✅
 - recently-merged-features.md ✅
-- repo_history_cleanup.md ✅
-- siege_fortifications_plan.md ✅
+- ~~repo_history_cleanup.md~~ 🗑️ removed (completed plan, archived then deleted)
+- ~~siege_fortifications_plan.md~~ 🗑️ removed (completed plan, archived then deleted)
 - spawn_pipeline.md ✅
 - temple_hybridization.md ✅
 - terrain_biomes.md ✅
 - training_and_replays.md ✅
-- ui_overhaul_design.md ✅
+- ~~ui_overhaul_design.md~~ 🗑️ removed (completed plan, archived then deleted)
 - wildlife_predators.md ✅
 - world_generation.md ✅
 

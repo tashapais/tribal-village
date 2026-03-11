@@ -2,7 +2,7 @@
 
 Date: 2026-01-28
 Owner: Design / Systems
-Status: Draft
+Status: Active
 
 ## Overview
 We introduced AoE-style class counters using explicit bonus damage by unit class, plus per-unit combat overlays and distinct bonus-hit flashes. This improves readability and makes the counter system visible while also emitting richer action tint observation codes for agents.

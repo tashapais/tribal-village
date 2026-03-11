@@ -308,13 +308,17 @@ suite "Score Tracking - Reset Behavior":
     # Reset
     env.reset()
 
-    # Verify victory state is cleared
+    # Verify victory state is cleared (no active victory, timers reset)
     check env.victoryWinner == -1
     for teamId in 0 ..< MapRoomObjectsTeams:
       check env.victoryStates[teamId].wonderBuiltStep == -1
       check env.victoryStates[teamId].relicHoldStartStep == -1
-      check env.victoryStates[teamId].kingAgentId == -1
       check env.victoryStates[teamId].hillControlStartStep == -1
+      # With VictoryAll, kings are reassigned during init() after reset
+      if env.config.victoryCondition in {VictoryRegicide, VictoryAll}:
+        check env.victoryStates[teamId].kingAgentId >= 0
+      else:
+        check env.victoryStates[teamId].kingAgentId == -1
 
   test "score can accumulate fresh after reset":
     var config = defaultEnvironmentConfig()

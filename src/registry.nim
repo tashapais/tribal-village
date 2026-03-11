@@ -77,31 +77,31 @@ let BuildingRegistry* = block:
     (MiningCamp, "Mining Camp", "mining_camp", 'M', (r: 200'u8, g: 190'u8, b: 120'u8),
       27, @[(ItemWood, 5)], 12),
     (Barracks, "Barracks", "barracks", 'r', (r: 160'u8, g: 90'u8, b: 60'u8),
-      8, @[(ItemWood, 9)], 12),
+      8, @[(ItemWood, 5)], 12),
     (ArcheryRange, "Archery Range", "archery_range", 'g', (r: 140'u8, g: 120'u8, b: 180'u8),
-      9, @[(ItemWood, 9)], 12),
+      9, @[(ItemWood, 5)], 12),
     (Stable, "Stable", "stable", 's', (r: 120'u8, g: 90'u8, b: 60'u8),
-      10, @[(ItemWood, 9)], 12),
+      10, @[(ItemWood, 5)], 12),
     (SiegeWorkshop, "Siege Workshop", "siege_workshop", 'i', (r: 120'u8, g: 120'u8, b: 160'u8),
-      11, @[(ItemWood, 10)], 14),
+      11, @[(ItemWood, 5)], 14),
     (MangonelWorkshop, "Mangonel Workshop", "mangonel_workshop", 'j', (r: 120'u8, g: 130'u8, b: 160'u8),
-      BuildIndexMangonelWorkshop, @[(ItemWood, 10), (ItemStone, 4)], 14),
+      BuildIndexMangonelWorkshop, @[(ItemWood, 5), (ItemStone, 2)], 14),
     (TrebuchetWorkshop, "Trebuchet Workshop", "trebuchet_workshop", 'T', (r: 100'u8, g: 110'u8, b: 150'u8),
-      25, @[(ItemWood, 12), (ItemStone, 6)], 16),
+      25, @[(ItemWood, 5), (ItemStone, 3)], 16),
     (Blacksmith, "Blacksmith", "blacksmith", 'k', (r: 90'u8, g: 90'u8, b: 90'u8),
-      16, @[(ItemWood, 8)], 12),
+      16, @[(ItemWood, 5)], 12),
     (Market, "Market", "market", 'e', (r: 200'u8, g: 170'u8, b: 120'u8),
-      7, @[(ItemWood, 9)], 12),
+      7, @[(ItemWood, 5)], 12),
     (Dock, "Dock", "dock", 'd', (r: 80'u8, g: 140'u8, b: 200'u8),
-      6, @[(ItemWood, 8)], 12),
+      6, @[(ItemWood, 5)], 12),
     (Monastery, "Monastery", "monastery", 'y', (r: 220'u8, g: 200'u8, b: 120'u8),
-      17, @[(ItemWood, 9)], 12),
+      17, @[(ItemWood, 5)], 12),
     (University, "University", "university", 'u', (r: 140'u8, g: 160'u8, b: 200'u8),
-      18, @[(ItemWood, 10)], 14),
+      18, @[(ItemWood, 5)], 14),
     (Castle, "Castle", "castle", 'c', (r: 120'u8, g: 120'u8, b: 120'u8),
-      12, @[(ItemStone, 33)], 20),
+      12, @[(ItemWood, 2), (ItemStone, 5)], 20),
     (Wonder, "Wonder", "wonder", 'W', (r: 255'u8, g: 215'u8, b: 0'u8),
-      26, @[(ItemWood, 50), (ItemStone, 50), (ItemGold, 50)], 50),
+      26, @[(ItemWood, 6), (ItemStone, 2), (ItemGold, 3)], 50),
     (GoblinHive, "Goblin Hive", "goblin_hive", 'H', (r: 120'u8, g: 170'u8, b: 90'u8),
       -1, @[], 0),
     (GoblinHut, "Goblin Hut", "goblin_hut", 'g', (r: 110'u8, g: 150'u8, b: 90'u8),
@@ -166,7 +166,16 @@ let TerrainCatalog* = block:
     (Dune, "Dune", "dune", 'd'),
     (Sand, "Sand", "sand", 's'),
     (Snow, "Snow", "snow", 'n'),
-    (Mud, "Mud", "mud", 'm')
+    (Mud, "Mud", "mud", 'm'),
+    (Mountain, "Mountain", "dune", 'M'),
+    (RampUpN, "Ramp Up North", "oriented/ramp_up_n", '/'),
+    (RampUpS, "Ramp Up South", "oriented/ramp_up_s", '/'),
+    (RampUpW, "Ramp Up West", "oriented/ramp_up_w", '/'),
+    (RampUpE, "Ramp Up East", "oriented/ramp_up_e", '/'),
+    (RampDownN, "Ramp Down North", "oriented/ramp_down_n", '\\'),
+    (RampDownS, "Ramp Down South", "oriented/ramp_down_s", '\\'),
+    (RampDownW, "Ramp Down West", "oriented/ramp_down_w", '\\'),
+    (RampDownE, "Ramp Down East", "oriented/ramp_down_e", '\\')
   ]:
     reg[terrain] = CatalogEntry(displayName: displayName, spriteKey: spriteKey, ascii: ascii)
   reg
@@ -212,7 +221,11 @@ let ThingCatalog* = block:
     (CliffCornerOutNE, "Cliff Corner Out NE", "oriented/cliff_corner_out_ne", '^'),
     (CliffCornerOutSE, "Cliff Corner Out SE", "oriented/cliff_corner_out_se", '^'),
     (CliffCornerOutSW, "Cliff Corner Out SW", "oriented/cliff_corner_out_sw", '^'),
-    (CliffCornerOutNW, "Cliff Corner Out NW", "oriented/cliff_corner_out_nw", '^')
+    (CliffCornerOutNW, "Cliff Corner Out NW", "oriented/cliff_corner_out_nw", '^'),
+    (WaterfallN, "Waterfall North", "waterfall_n", '~'),
+    (WaterfallE, "Waterfall East", "waterfall_e", '~'),
+    (WaterfallS, "Waterfall South", "waterfall_s", '~'),
+    (WaterfallW, "Waterfall West", "waterfall_w", '~')
   ]:
     reg[kind] = CatalogEntry(displayName: displayName, spriteKey: spriteKey, ascii: ascii)
   reg
@@ -241,7 +254,7 @@ let ItemCatalog* = block:
   reg
 
 proc terrainSpriteKey*(terrain: TerrainType): string =
-  if terrain == Empty or isRampTerrain(terrain):
+  if terrain == Empty:
     return ""
   let key = TerrainCatalog[terrain].spriteKey
   assert key.len > 0, "Missing spriteKey for terrain: " & $terrain
@@ -387,7 +400,7 @@ proc buildingTrainUnit*(kind: ThingKind, teamId: int = -1): AgentUnitClass =
       CastleUniqueUnits[teamId]
     else:
       UnitKnight  # Fallback for invalid/unknown team
-  of Dock: UnitTradeCog
+  of Dock: UnitGalley
   else: UnitVillager
 
 proc buildingTrainCosts*(kind: ThingKind): seq[tuple[res: StockpileResource, count: int]] =
@@ -395,9 +408,9 @@ proc buildingTrainCosts*(kind: ThingKind): seq[tuple[res: StockpileResource, cou
   of Barracks: @[(res: ResourceFood, count: 3), (res: ResourceGold, count: 1)]
   of ArcheryRange: @[(res: ResourceWood, count: 2), (res: ResourceGold, count: 2)]
   of Stable: @[(res: ResourceFood, count: 3)]
-  of SiegeWorkshop: @[(res: ResourceWood, count: 3), (res: ResourceStone, count: 2)]
-  of MangonelWorkshop: @[(res: ResourceWood, count: 4), (res: ResourceStone, count: 3)]
-  of TrebuchetWorkshop: @[(res: ResourceWood, count: 5), (res: ResourceGold, count: 4)]
+  of SiegeWorkshop: @[(res: ResourceWood, count: 2)]
+  of MangonelWorkshop: @[(res: ResourceWood, count: 4)]
+  of TrebuchetWorkshop: @[(res: ResourceWood, count: 4), (res: ResourceGold, count: 3)]
   of Monastery: @[(res: ResourceGold, count: 2)]
   of Castle: @[(res: ResourceFood, count: 4), (res: ResourceGold, count: 2)]
   of Dock: @[(res: ResourceWood, count: 3), (res: ResourceGold, count: 2)]
@@ -413,7 +426,7 @@ proc unitTrainTime*(unitClass: AgentUnitClass): int =
   of UnitScout: 30
   of UnitKnight: 60
   of UnitMonk: 50
-  of UnitBatteringRam: 80
+  of UnitBatteringRam: 50
   of UnitMangonel: 80
   of UnitTrebuchet: 80
   of UnitGoblin: 30

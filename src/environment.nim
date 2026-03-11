@@ -93,9 +93,9 @@ proc clear[T](s: var openarray[T]) =
   ## Zero out a contiguous buffer (arrays/openarrays) without reallocating.
   zeroMem(cast[pointer](s[0].addr), s.len * sizeof(T))
 
-proc hasWaterNearby*(env: Environment, pos: IVec2, radius: int, includeShallow: bool = false): bool =
+proc hasWaterNearby*(env: Environment, pos: IVec2, radius: int, includeShallow: bool = true): bool =
   ## Check if there is water terrain within the given radius of a position.
-  ## If includeShallow is true, also matches ShallowWater.
+  ## Includes ShallowWater by default since docks can be placed on either.
   for dx in -radius .. radius:
     for dy in -radius .. radius:
       let x = pos.x + dx
@@ -593,7 +593,7 @@ const
     MangonelMaxHp,
     TrebuchetMaxHp,
     GoblinMaxHp,
-    VillagerMaxHp,
+    BoatMaxHp,
     TradeCogMaxHp,
     # Castle unique units
     SamuraiMaxHp,
@@ -646,7 +646,7 @@ const
     MangonelAttackDamage,
     TrebuchetAttackDamage,
     GoblinAttackDamage,
-    VillagerAttackDamage,
+    BoatAttackDamage,
     TradeCogAttackDamage,
     # Castle unique units
     SamuraiAttackDamage,
@@ -694,8 +694,10 @@ proc defaultStanceForClass*(unitClass: AgentUnitClass): AgentStance =
   ## Villagers use NoAttack (won't auto-attack).
   ## Military units use Defensive (attack in range, return to position).
   case unitClass
-  of UnitVillager, UnitMonk, UnitBoat, UnitTradeCog, UnitFishingShip, UnitTransportShip:
+  of UnitVillager, UnitMonk, UnitFishingShip, UnitTransportShip:
     StanceNoAttack
+  of UnitBoat, UnitTradeCog:
+    StanceDefensive
   of UnitManAtArms, UnitArcher, UnitScout, UnitKnight, UnitBatteringRam, UnitMangonel, UnitTrebuchet, UnitGoblin,
      UnitSamurai, UnitLongbowman, UnitCataphract, UnitWoadRaider, UnitTeutonicKnight,
      UnitHuskarl, UnitMameluke, UnitJanissary, UnitKing,
@@ -1064,10 +1066,10 @@ proc canPlace*(env: Environment, pos: IVec2, checkFrozen: bool = true): bool {.i
     (not checkFrozen or not isTileFrozen(pos, env)) and isBuildableTerrain(env.terrain[pos.x][pos.y])
 
 proc canPlaceDock*(env: Environment, pos: IVec2, checkFrozen: bool = true): bool {.inline.} =
-  ## Check if a dock can be placed at the position (must be water).
+  ## Check if a dock can be placed at the position (must be water or shallow water).
   ## NOTE: Remains here because it uses isTileFrozen from colors.nim (included file).
   isValidPos(pos) and env.isEmpty(pos) and isNil(env.getBackgroundThing(pos)) and
-    (not checkFrozen or not isTileFrozen(pos, env)) and env.terrain[pos.x][pos.y] == Water
+    (not checkFrozen or not isTileFrozen(pos, env)) and env.terrain[pos.x][pos.y] in WaterTerrain
 
 ## resetTileColor is in environment_grid.nim
 
@@ -1290,13 +1292,56 @@ proc cancelQueueEntry*(env: Environment, building: Thing, index: int): bool =
   env.refundTrainCosts(building)
   true
 
+proc effectiveTrainUnit*(env: Environment, buildingKind: ThingKind, teamId: int): AgentUnitClass =
+  ## Returns the effective unit class trained by a building, considering upgrades.
+  ## For example, if LongSwordsman upgrade is researched, Barracks trains LongSwordsman instead of ManAtArms.
+  ## "Unlock" upgrades (Knight, Skirmisher, CavalryArcher) switch the building's production line.
+  let baseUnit = buildingTrainUnit(buildingKind, teamId)
+  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+    return baseUnit
+  # Check upgrade chain for the base unit
+  case baseUnit
+  of UnitManAtArms:
+    if env.teamUnitUpgrades[teamId].researched[UpgradeChampion]:
+      return UnitChampion
+    if env.teamUnitUpgrades[teamId].researched[UpgradeLongSwordsman]:
+      return UnitLongSwordsman
+    return UnitManAtArms
+  of UnitScout:
+    # Knight line replaces Scout line once researched
+    if env.teamUnitUpgrades[teamId].researched[UpgradeKnight]:
+      return UnitKnight
+    if env.teamUnitUpgrades[teamId].researched[UpgradeHussar]:
+      return UnitHussar
+    if env.teamUnitUpgrades[teamId].researched[UpgradeLightCavalry]:
+      return UnitLightCavalry
+    return UnitScout
+  of UnitArcher:
+    # CavalryArcher line replaces earlier lines once researched
+    if env.teamUnitUpgrades[teamId].researched[UpgradeCavalryArcher]:
+      if env.teamUnitUpgrades[teamId].researched[UpgradeHeavyCavalryArcher]:
+        return UnitHeavyCavalryArcher
+      return UnitCavalryArcher
+    # Skirmisher line replaces Archer line once researched
+    if env.teamUnitUpgrades[teamId].researched[UpgradeSkirmisher]:
+      if env.teamUnitUpgrades[teamId].researched[UpgradeEliteSkirmisher]:
+        return UnitEliteSkirmisher
+      return UnitSkirmisher
+    if env.teamUnitUpgrades[teamId].researched[UpgradeArbalester]:
+      return UnitArbalester
+    if env.teamUnitUpgrades[teamId].researched[UpgradeCrossbowman]:
+      return UnitCrossbowman
+    return UnitArcher
+  else:
+    return baseUnit
+
 proc tryBatchQueueTrain*(env: Environment, building: Thing, teamId: int,
                          count: int): int =
   ## Queue multiple units for training (batch/shift-click).
   ## Returns the number of units actually queued.
   if not buildingHasTrain(building.kind):
     return 0
-  let unitClass = buildingTrainUnit(building.kind, teamId)
+  let unitClass = env.effectiveTrainUnit(building.kind, teamId)
   let costs = buildingTrainCosts(building.kind)
   var queued = 0
   for i in 0 ..< count:
@@ -1322,7 +1367,7 @@ proc processProductionQueue*(building: Thing) =
      building.productionQueue.entries[0].remainingSteps > 0:
     building.productionQueue.entries[0].remainingSteps -= 1
 
-proc getNextBlacksmithUpgrade(env: Environment, teamId: int): BlacksmithUpgradeType =
+proc getNextBlacksmithUpgrade*(env: Environment, teamId: int): BlacksmithUpgradeType =
   ## Find the next upgrade to research (lowest level across all types).
   ## Returns the upgrade type with the lowest current level.
   var minLevel = BlacksmithUpgradeMaxLevel + 1
@@ -1760,47 +1805,61 @@ proc upgradePrerequisite*(upgrade: UnitUpgradeType): UnitUpgradeType =
   of UpgradeChampion: UpgradeLongSwordsman
   of UpgradeLightCavalry: UpgradeLightCavalry    # no prereq
   of UpgradeHussar: UpgradeLightCavalry
+  of UpgradeKnight: UpgradeKnight                # no prereq (unlocks Knight line)
   of UpgradeCrossbowman: UpgradeCrossbowman      # no prereq
   of UpgradeArbalester: UpgradeCrossbowman
-  of UpgradeEliteSkirmisher: UpgradeEliteSkirmisher  # no prereq
-  of UpgradeHeavyCavalryArcher: UpgradeHeavyCavalryArcher  # no prereq
+  of UpgradeSkirmisher: UpgradeSkirmisher         # no prereq (unlocks Skirmisher line)
+  of UpgradeEliteSkirmisher: UpgradeSkirmisher    # requires Skirmisher unlock
+  of UpgradeCavalryArcher: UpgradeCavalryArcher   # no prereq (unlocks CavalryArcher line)
+  of UpgradeHeavyCavalryArcher: UpgradeCavalryArcher  # requires CavalryArcher unlock
 
 proc upgradeSourceUnit*(upgrade: UnitUpgradeType): AgentUnitClass =
   ## Returns the unit class that gets upgraded.
+  ## For "unlock" upgrades (Knight, Skirmisher, CavalryArcher), source = target
+  ## since these unlock new production lines rather than converting existing units.
   case upgrade
   of UpgradeLongSwordsman: UnitManAtArms
   of UpgradeChampion: UnitLongSwordsman
   of UpgradeLightCavalry: UnitScout
   of UpgradeHussar: UnitLightCavalry
+  of UpgradeKnight: UnitKnight              # unlock (no conversion)
   of UpgradeCrossbowman: UnitArcher
   of UpgradeArbalester: UnitCrossbowman
+  of UpgradeSkirmisher: UnitSkirmisher      # unlock (no conversion)
   of UpgradeEliteSkirmisher: UnitSkirmisher
+  of UpgradeCavalryArcher: UnitCavalryArcher  # unlock (no conversion)
   of UpgradeHeavyCavalryArcher: UnitCavalryArcher
 
 proc upgradeTargetUnit*(upgrade: UnitUpgradeType): AgentUnitClass =
   ## Returns the unit class that results from the upgrade.
+  ## For "unlock" upgrades, source = target (no existing units to convert).
   case upgrade
   of UpgradeLongSwordsman: UnitLongSwordsman
   of UpgradeChampion: UnitChampion
   of UpgradeLightCavalry: UnitLightCavalry
   of UpgradeHussar: UnitHussar
+  of UpgradeKnight: UnitKnight              # unlock
   of UpgradeCrossbowman: UnitCrossbowman
   of UpgradeArbalester: UnitArbalester
+  of UpgradeSkirmisher: UnitSkirmisher      # unlock
   of UpgradeEliteSkirmisher: UnitEliteSkirmisher
+  of UpgradeCavalryArcher: UnitCavalryArcher  # unlock
   of UpgradeHeavyCavalryArcher: UnitHeavyCavalryArcher
 
 proc upgradeBuilding*(upgrade: UnitUpgradeType): ThingKind =
   ## Returns the building where this upgrade is researched.
   case upgrade
   of UpgradeLongSwordsman, UpgradeChampion: Barracks
-  of UpgradeLightCavalry, UpgradeHussar: Stable
+  of UpgradeLightCavalry, UpgradeHussar, UpgradeKnight: Stable
   of UpgradeCrossbowman, UpgradeArbalester,
-     UpgradeEliteSkirmisher, UpgradeHeavyCavalryArcher: ArcheryRange
+     UpgradeSkirmisher, UpgradeEliteSkirmisher,
+     UpgradeCavalryArcher, UpgradeHeavyCavalryArcher: ArcheryRange
 
 proc upgradeCosts*(upgrade: UnitUpgradeType): seq[tuple[res: StockpileResource, count: int]] =
   ## Returns the resource costs for an upgrade.
   case upgrade
   of UpgradeLongSwordsman, UpgradeLightCavalry, UpgradeCrossbowman,
+     UpgradeKnight, UpgradeSkirmisher, UpgradeCavalryArcher,
      UpgradeEliteSkirmisher, UpgradeHeavyCavalryArcher:
     @[(res: ResourceFood, count: UnitUpgradeTier2FoodCost),
       (res: ResourceGold, count: UnitUpgradeTier2GoldCost)]
@@ -1815,10 +1874,19 @@ proc hasUnitUpgrade*(env: Environment, teamId: int, upgrade: UnitUpgradeType): b
 
 proc getNextUnitUpgrade*(env: Environment, teamId: int, buildingKind: ThingKind): UnitUpgradeType =
   ## Find the next available upgrade for the given building type.
-  ## Returns the first unresearched upgrade whose prerequisites are met.
-  for upgrade in UnitUpgradeType:
-    if upgradeBuilding(upgrade) != buildingKind:
-      continue
+  ## Rotates starting point by teamId to distribute across upgrade lines,
+  ## so different teams research different upgrades (Knight vs LightCavalry, etc.)
+  let allUpgrades = block:
+    var upgrades: seq[UnitUpgradeType]
+    for u in UnitUpgradeType:
+      if upgradeBuilding(u) == buildingKind:
+        upgrades.add(u)
+    upgrades
+  if allUpgrades.len == 0:
+    return UpgradeLongSwordsman  # fallback
+  let startIdx = teamId mod allUpgrades.len
+  for offset in 0 ..< allUpgrades.len:
+    let upgrade = allUpgrades[(startIdx + offset) mod allUpgrades.len]
     if env.teamUnitUpgrades[teamId].researched[upgrade]:
       continue
     # Check prerequisite
@@ -1827,10 +1895,7 @@ proc getNextUnitUpgrade*(env: Environment, teamId: int, buildingKind: ThingKind)
       continue
     return upgrade
   # No upgrades available; return first of this building type (caller checks researched)
-  for upgrade in UnitUpgradeType:
-    if upgradeBuilding(upgrade) == buildingKind:
-      return upgrade
-  UpgradeLongSwordsman  # fallback
+  allUpgrades[0]
 
 proc upgradeExistingUnits*(env: Environment, teamId: int, fromClass: AgentUnitClass, toClass: AgentUnitClass) =
   ## Upgrade all living units of fromClass on the given team to toClass.
@@ -1901,35 +1966,6 @@ proc tryResearchUnitUpgrade*(env: Environment, agent: Thing, building: Thing): b
   when defined(techAudit):
     logUnitUpgrade(teamId, upgrade, env.currentStep, costs)
   true
-
-proc effectiveTrainUnit*(env: Environment, buildingKind: ThingKind, teamId: int): AgentUnitClass =
-  ## Returns the effective unit class trained by a building, considering upgrades.
-  ## For example, if LongSwordsman upgrade is researched, Barracks trains LongSwordsman instead of ManAtArms.
-  let baseUnit = buildingTrainUnit(buildingKind, teamId)
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
-    return baseUnit
-  # Check upgrade chain for the base unit
-  case baseUnit
-  of UnitManAtArms:
-    if env.teamUnitUpgrades[teamId].researched[UpgradeChampion]:
-      return UnitChampion
-    if env.teamUnitUpgrades[teamId].researched[UpgradeLongSwordsman]:
-      return UnitLongSwordsman
-    return UnitManAtArms
-  of UnitScout:
-    if env.teamUnitUpgrades[teamId].researched[UpgradeHussar]:
-      return UnitHussar
-    if env.teamUnitUpgrades[teamId].researched[UpgradeLightCavalry]:
-      return UnitLightCavalry
-    return UnitScout
-  of UnitArcher:
-    if env.teamUnitUpgrades[teamId].researched[UpgradeArbalester]:
-      return UnitArbalester
-    if env.teamUnitUpgrades[teamId].researched[UpgradeCrossbowman]:
-      return UnitCrossbowman
-    return UnitArcher
-  else:
-    return baseUnit
 
 # ---- Economy tech logic (AoE2-style) ----
 
@@ -2448,6 +2484,33 @@ proc spawnUnitTrail*(env: Environment, pos: IVec2, teamId: int) =
     countdown: UnitTrailLifetime,
     lifetime: UnitTrailLifetime,
     teamId: teamId.int8))
+
+proc spawnDustParticles*(env: Environment, pos: IVec2, terrain: TerrainType) =
+  ## Spawn dust particles when a unit walks on dusty terrain.
+  ## Particle color varies based on terrain type.
+  if not isValidPos(pos):
+    return
+  # Map terrain to color index: 0=sand/dune (tan), 1=snow (white), 2=mud (brown), 3=grass/fertile (green-brown), 4=road (gray)
+  let colorIdx = case terrain
+    of Sand, Dune: 0'u8
+    of Snow: 1'u8
+    of Mud: 2'u8
+    of Grass, Fertile: 3'u8
+    of Road: 4'u8
+    else: 0'u8
+  # Spawn multiple small dust particles
+  for i in 0 ..< DustParticleCount:
+    # Horizontal spread around footstep
+    let xOffset = (i.float32 - 1.0) * 0.15
+    # Upward drift with slight variation
+    let ySpeed = -0.03 - (i mod 2).float32 * 0.01  # Negative Y = upward
+    let xDrift = ((env.currentStep + i) mod 3).float32 * 0.008 - 0.008
+    env.dustParticles.add(DustParticle(
+      pos: vec2(pos.x.float32 + xOffset, pos.y.float32 + 0.2),
+      velocity: vec2(xDrift, ySpeed),
+      countdown: DustParticleLifetime,
+      lifetime: DustParticleLifetime,
+      terrainColor: colorIdx))
 
 proc spawnWaterRipple*(env: Environment, pos: IVec2) =
   ## Spawn a ripple effect when a unit walks through water.

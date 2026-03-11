@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any, Optional, Sequence, Union
+from typing import Any, Sequence
 
 import torch
 from gymnasium import spaces
@@ -12,11 +12,10 @@ from gymnasium import spaces
 import pufferlib.models  # type: ignore[import-untyped]
 import pufferlib.pytorch  # type: ignore[import-untyped]
 from mettagrid.policy.policy import AgentPolicy, MultiAgentPolicy
-from mettagrid.simulator import Action, AgentObservation, Simulation
+from mettagrid.simulator import Action, Simulation
 
-from tribal_village_env.constants import (
+from tribal_village_env.config import (
     DEFAULT_HIDDEN_SIZE,
-    OBS_MAX_VALUE,
     OBS_NORMALIZATION_FACTOR,
 )
 
@@ -63,7 +62,7 @@ class TribalVillagePufferPolicy(MultiAgentPolicy, AgentPolicy):
         policy_env_info: TribalPolicyEnvInfo,
         *,
         hidden_size: int = DEFAULT_HIDDEN_SIZE,
-        device: Optional[Union[str, torch.device]] = None,
+        device: str | torch.device | None = None,
     ) -> None:
         MultiAgentPolicy.__init__(self, policy_env_info)
         AgentPolicy.__init__(self, policy_env_info)
@@ -87,7 +86,7 @@ class TribalVillagePufferPolicy(MultiAgentPolicy, AgentPolicy):
     def is_recurrent(self) -> bool:
         return False
 
-    def reset(self, simulation: Optional[Simulation] = None) -> None:  # type: ignore[override]
+    def reset(self, simulation: Simulation | None = None) -> None:  # type: ignore[override]
         return None
 
     def load_policy_data(self, policy_data_path: str) -> None:
@@ -98,30 +97,8 @@ class TribalVillagePufferPolicy(MultiAgentPolicy, AgentPolicy):
     def save_policy_data(self, policy_data_path: str) -> None:
         torch.save(self._net.state_dict(), policy_data_path)
 
-    def step(self, obs: Union[AgentObservation, torch.Tensor, Sequence[Any]]) -> Action:  # type: ignore[override]
-        if isinstance(obs, AgentObservation):
-            obs_shape = self.policy_env_info.observation_space.shape
-            if len(obs_shape) != 2:
-                raise ValueError(
-                    "AgentObservation provided but observation_space shape is "
-                    f"{obs_shape}; expected (tokens, token_dim)."
-                )
-            num_tokens, token_dim = obs_shape
-            obs_tensor = torch.full(
-                (num_tokens, token_dim),
-                fill_value=float(OBS_MAX_VALUE),
-                device=self._device,
-                dtype=torch.float32,
-            )
-            for idx, token in enumerate(obs.tokens):
-                if idx >= num_tokens:
-                    break
-                raw = torch.as_tensor(
-                    token.raw_token, device=self._device, dtype=obs_tensor.dtype
-                )
-                obs_tensor[idx, : min(token_dim, raw.numel())] = raw[:token_dim]
-        else:
-            obs_tensor = torch.as_tensor(obs, device=self._device, dtype=torch.float32)
+    def step(self, obs: torch.Tensor | Sequence[Any]) -> Action:  # type: ignore[override]
+        obs_tensor = torch.as_tensor(obs, device=self._device, dtype=torch.float32)
 
         if obs_tensor.ndim == len(self.policy_env_info.observation_space.shape):
             obs_tensor = obs_tensor.unsqueeze(0)

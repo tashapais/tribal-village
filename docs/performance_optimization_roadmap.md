@@ -177,10 +177,7 @@ Added early exit from 17x17 scan when adjacent fertile tile found (`minDist <= 1
 The codebase has good profiling support:
 
 - **Step timing**: Compile with `-d:release -d:stepTiming`, set `TV_STEP_TIMING=100` (start step) and `TV_STEP_TIMING_WINDOW=50` (window)
-- **AI profiling**: `scripts/profile_ai.nim` — per-agent AI tick breakdown
-- **Nim profiler**: `nim r --profiler:on --stackTrace:on scripts/profile_env.nim`
 - **Benchmarking**: `make benchmark` for steps/sec + regression detection
-- **Perf baseline**: `nim c -r -d:release --path:src scripts/perf_baseline.nim --steps 1000`
 - **Spatial auto-tune**: Compile with `-d:spatialAutoTune`
 
 ---

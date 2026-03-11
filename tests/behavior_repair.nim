@@ -91,7 +91,7 @@ suite "Repair - Multi-Builder Bonus":
     # Both use toward the house
     # agent0 at (5,4) faces S (arg=1) toward (5,5)
     # agent1 at (5,6) faces N (arg=0) toward (5,5)
-    var actions: array[MapAgents, uint8]
+    var actions: array[MapAgents, uint16]
     for i in 0 ..< MapAgents:
       actions[i] = 0
     # Fill agents so step works
@@ -139,7 +139,7 @@ suite "Repair - Multi-Builder Bonus":
       )
       env.add(filler)
       env.terminated[nextId] = 1.0
-    var actions: array[MapAgents, uint8]
+    var actions: array[MapAgents, uint16]
     for i in 0 ..< MapAgents:
       actions[i] = 0
     actions[0] = encodeAction(ActionUse, 1)  # S toward house

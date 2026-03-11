@@ -6,7 +6,7 @@ import types
 import items
 import terrain
 
-proc decodeAction*(action: uint8): tuple[verb: int, arg: int] =
+proc decodeAction*(action: uint16): tuple[verb: int, arg: int] =
   (action.int div ActionArgumentCount, action.int mod ActionArgumentCount)
 
 proc dirIndex*(fromPos, toPos: IVec2): int =
@@ -157,13 +157,13 @@ proc stepNoop*(env: Environment) =
     )
     env.add(agent)
     env.terminated[nextId] = 1.0
-  var actions: array[MapAgents, uint8]
+  var actions: array[MapAgents, uint16]
   for i in 0 ..< MapAgents:
     actions[i] = 0
   env.step(addr actions)
   env.ensureObservations()
 
-proc stepAction*(env: Environment, agentId: int, verb: uint8, argument: int) =
+proc stepAction*(env: Environment, agentId: int, verb: uint16, argument: int) =
   while env.agents.len < MapAgents:
     let nextId = env.agents.len
     let agent = Thing(
@@ -182,10 +182,10 @@ proc stepAction*(env: Environment, agentId: int, verb: uint8, argument: int) =
     )
     env.add(agent)
     env.terminated[nextId] = 1.0
-  var actions: array[MapAgents, uint8]
+  var actions: array[MapAgents, uint16]
   for i in 0 ..< MapAgents:
     actions[i] = 0
-  actions[agentId] = encodeAction(verb, argument.uint8)
+  actions[agentId] = encodeAction(verb, argument.uint16)
   env.step(addr actions)
   env.ensureObservations()
 
