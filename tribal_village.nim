@@ -1,7 +1,7 @@
 import std/[os, strutils, math],
   boxy, windy, vmath, pixie,
   src/environment, src/common, src/renderer, src/agent_control, src/tileset,
-  src/minimap, src/command_panel, src/tooltips, src/semantic
+  src/minimap, src/command_panel, src/tooltips, src/semantic, src/gui_assets
 
 when compileOption("profiler"):
   import std/nimprof
@@ -622,10 +622,6 @@ proc display() =
           playSpeed = FasterPlaySpeed
           play = true
           lastSimTime = nowSeconds()
-        of FooterSuper:
-          playSpeed = SuperPlaySpeed
-          play = true
-          lastSimTime = nowSeconds()
         break
     clearUiCapture = true
     blockSelection = true
@@ -957,7 +953,7 @@ proc display() =
   if buildingPlacementMode and window.buttonPressed[MouseLeft] and not blockSelection:
     let mousePos = getTransform().inverse * window.mousePos.vec2
     let gridPos = (mousePos + vec2(0.5, 0.5)).ivec2
-    if canPlaceBuildingAt(gridPos, buildingPlacementKind) and playerTeam >= 0:
+    if canPlaceBuildingAt(gridPos) and playerTeam >= 0:
       # Place the building (using a villager if available)
       for sel in selection:
         if not isNil(sel) and sel.kind == Agent and sel.unitClass == UnitVillager:
@@ -1466,23 +1462,28 @@ generateDfViewAssets()
 echo "🎨 Loading tribal assets..."
 var loadedCount = 0
 var skippedCount = 0
+var filteredCount = 0
 var totalBytes = 0
 
 for path in walkDirRec("data/"):
-  if path.startsWith("data/df_view/"):
+  if not path.endsWith(".png"):
     continue
-  if path.endsWith(".png"):
-    try:
-      let key = path.replace("data/", "").replace(".png", "")
-      let image = readImage(path)
-      bxy.addImage(key, image)
-      inc loadedCount
-      totalBytes += getFileSize(path).int
-    except Exception as e:
-      echo "⚠️  Skipping ", path, ": ", e.msg
-      inc skippedCount
+  if not shouldPreloadGuiAsset(path):
+    inc filteredCount
+    continue
+  try:
+    let key = guiAssetKey(path)
+    let image = readImage(path)
+    bxy.addImage(key, image)
+    inc loadedCount
+    totalBytes += getFileSize(path).int
+  except Exception as e:
+    echo "⚠️  Skipping ", path, ": ", e.msg
+    inc skippedCount
 
 echo "✅ Loaded ", loadedCount, " assets (", totalBytes div 1024 div 1024, " MB)"
+if filteredCount > 0:
+  echo "🧹 Filtered ", filteredCount, " non-game assets from GUI preload"
 if skippedCount > 0:
   echo "⚠️  Skipped ", skippedCount, " files due to errors"
 
@@ -1513,6 +1514,7 @@ else:
 # Check if external controller is active and start playing if so
 if globalController != nil and globalController.controllerType == ExternalNN:
   play = true
+  lastSimTime = nowSeconds()
 
 # Initialize audio system if enabled
 when defined(audio):

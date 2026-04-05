@@ -155,21 +155,21 @@ suite "Feature remapping":
     check remapping[1] == 255
 
 suite "InitResult helpers":
-  test "successResult creates success result":
-    let result = successResult("Test message")
+  test "InitResult creates success result":
+    let result = InitResult(success: true, message: "Test message")
     check result.success
     check result.message == "Test message"
 
-  test "errorResult creates failure result":
-    let result = errorResult("Error message")
+  test "InitResult creates failure result":
+    let result = InitResult(success: false, message: "Error message")
     check not result.success
     check result.message == "Error message"
 
-  test "initResult creates custom result":
-    let success = initResult(true, "Custom success")
+  test "InitResult creates custom results directly":
+    let success = InitResult(success: true, message: "Custom success")
     check success.success
     check success.message == "Custom success"
 
-    let failure = initResult(false, "Custom failure")
+    let failure = InitResult(success: false, message: "Custom failure")
     check not failure.success
     check failure.message == "Custom failure"

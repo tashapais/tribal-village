@@ -196,14 +196,14 @@ suite "Formation - FFI API":
     check getControlGroupFormation(0) == 2
     setControlGroupFormation(0, 5)  # Staggered
     check getControlGroupFormation(0) == 5
-    clearControlGroupFormation(0)
+    clearFormation(0)
     check getControlGroupFormation(0) == 0  # None
 
   test "control group formation rotation via API":
     resetAllFormations()
     setControlGroupFormation(0, 1)
-    setControlGroupFormationRotation(0, 4)
-    check getControlGroupFormationRotation(0) == 4
+    setFormationRotation(0, 4)
+    check getFormationRotation(0) == 4
 
 suite "Formation - Group Utilities":
   test "findAgentControlGroup finds correct group":

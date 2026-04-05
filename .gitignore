@@ -1,4 +1,6 @@
 data/tmp/
+data/silky.atlas.json
+data/silky.atlas.png
 tribal_village.log
 profile_results.txt
 metta
@@ -114,11 +116,10 @@ windy/
 ws/
 zippy/
 
-# Gas Town
+# Local tool state
 .runtime/
 .claude/
 .logs/
-.beads/
 scorecards/
 
 # Session artifacts

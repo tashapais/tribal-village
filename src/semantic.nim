@@ -1,10 +1,12 @@
-## Semantic capture for LLM UI debugging.
-## When enabled, outputs a YAML-like text representation of the UI widget hierarchy
-## instead of (or in addition to) rendering pixels. This allows LLMs to inspect
-## UI layout, verify button positions, and detect overlapping widgets.
+## Semantic capture helpers for UI debugging.
+## When enabled, these helpers emit a text tree of captured widgets.
 
-import std/strformat
-import vmath
+import
+  std/[strformat],
+  vmath
+
+const
+  RootSemanticContext = ""
 
 type
   SemanticWidgetKind* = enum
@@ -20,7 +22,8 @@ type
     name*: string
     pos*: Vec2
     size*: Vec2
-    parent*: string  ## Parent context name for hierarchy
+    parent*: string
+      ## Parent context name for hierarchy grouping.
 
   SemanticContext* = object
     name*: string
@@ -30,154 +33,127 @@ var
   semanticEnabled* = false
   capturedWidgets: seq[SemanticWidget]
   contextStack: seq[SemanticContext]
-  currentContext: string = ""
-  currentDepth: int = 0
+  currentContext = RootSemanticContext
+  currentDepth = 0
+
+proc resetSemanticState() =
+  ## Resets all captured semantic state for a new capture session.
+  capturedWidgets = @[]
+  contextStack = @[]
+  currentContext = RootSemanticContext
+  currentDepth = 0
+
+proc captureWidget(
+  kind: SemanticWidgetKind,
+  name: string,
+  pos: Vec2,
+  size: Vec2
+) =
+  ## Captures one widget when semantic capture is enabled.
+  if not semanticEnabled:
+    return
+  capturedWidgets.add(SemanticWidget(
+    kind: kind,
+    name: name,
+    pos: pos,
+    size: size,
+    parent: currentContext,
+  ))
+
+proc kindToString(kind: SemanticWidgetKind): string =
+  ## Returns a stable display name for one widget kind.
+  case kind
+  of WidgetButton:
+    "Button"
+  of WidgetLabel:
+    "Label"
+  of WidgetIcon:
+    "Icon"
+  of WidgetPanel:
+    "Panel"
+  of WidgetRect:
+    "Rect"
+  of WidgetImage:
+    "Image"
 
 proc enableSemanticCapture*() =
-  ## Enable semantic capture mode.
+  ## Enables semantic capture mode.
   semanticEnabled = true
-  capturedWidgets = @[]
-  contextStack = @[]
-  currentContext = ""
-  currentDepth = 0
-
-proc disableSemanticCapture*() =
-  ## Disable semantic capture mode.
-  semanticEnabled = false
+  resetSemanticState()
 
 proc beginSemanticFrame*() =
-  ## Start capturing a new frame. Clears previous frame's data.
+  ## Starts a new semantic frame and clears previous frame state.
   if not semanticEnabled:
     return
-  capturedWidgets = @[]
-  contextStack = @[]
-  currentContext = ""
-  currentDepth = 0
+  resetSemanticState()
 
 proc pushSemanticContext*(name: string) =
-  ## Push a named context onto the stack (e.g., "Footer", "ResourceBar").
+  ## Pushes one named context onto the semantic stack.
   if not semanticEnabled:
     return
-  contextStack.add(SemanticContext(name: currentContext, depth: currentDepth))
+  contextStack.add(SemanticContext(
+    name: currentContext,
+    depth: currentDepth,
+  ))
   currentContext = name
   inc currentDepth
 
 proc popSemanticContext*() =
-  ## Pop the current context from the stack.
-  if not semanticEnabled:
+  ## Pops the current semantic context from the stack.
+  if not semanticEnabled or contextStack.len == 0:
     return
-  if contextStack.len > 0:
-    let prev = contextStack.pop()
-    currentContext = prev.name
-    currentDepth = prev.depth
+  let previous = contextStack.pop()
+  currentContext = previous.name
+  currentDepth = previous.depth
 
 proc captureButton*(name: string, pos: Vec2, size: Vec2) =
-  ## Capture a button widget.
-  if not semanticEnabled:
-    return
-  capturedWidgets.add(SemanticWidget(
-    kind: WidgetButton,
-    name: name,
-    pos: pos,
-    size: size,
-    parent: currentContext
-  ))
+  ## Captures one button widget.
+  captureWidget(WidgetButton, name, pos, size)
 
 proc captureLabel*(text: string, pos: Vec2, size: Vec2 = vec2(0, 0)) =
-  ## Capture a label/text widget.
-  if not semanticEnabled:
-    return
-  capturedWidgets.add(SemanticWidget(
-    kind: WidgetLabel,
-    name: text,
-    pos: pos,
-    size: size,
-    parent: currentContext
-  ))
-
-proc captureIcon*(name: string, pos: Vec2, size: Vec2) =
-  ## Capture an icon widget.
-  if not semanticEnabled:
-    return
-  capturedWidgets.add(SemanticWidget(
-    kind: WidgetIcon,
-    name: name,
-    pos: pos,
-    size: size,
-    parent: currentContext
-  ))
+  ## Captures one label widget.
+  captureWidget(WidgetLabel, text, pos, size)
 
 proc capturePanel*(name: string, pos: Vec2, size: Vec2) =
-  ## Capture a panel/container widget.
-  if not semanticEnabled:
-    return
-  capturedWidgets.add(SemanticWidget(
-    kind: WidgetPanel,
-    name: name,
-    pos: pos,
-    size: size,
-    parent: currentContext
-  ))
-
-proc captureRect*(name: string, pos: Vec2, size: Vec2) =
-  ## Capture a generic rectangle (for backgrounds, borders, etc).
-  if not semanticEnabled:
-    return
-  capturedWidgets.add(SemanticWidget(
-    kind: WidgetRect,
-    name: name,
-    pos: pos,
-    size: size,
-    parent: currentContext
-  ))
-
-proc captureImage*(name: string, pos: Vec2, size: Vec2) =
-  ## Capture an image/sprite widget.
-  if not semanticEnabled:
-    return
-  capturedWidgets.add(SemanticWidget(
-    kind: WidgetImage,
-    name: name,
-    pos: pos,
-    size: size,
-    parent: currentContext
-  ))
-
-proc kindToString(kind: SemanticWidgetKind): string =
-  case kind
-  of WidgetButton: "Button"
-  of WidgetLabel: "Label"
-  of WidgetIcon: "Icon"
-  of WidgetPanel: "Panel"
-  of WidgetRect: "Rect"
-  of WidgetImage: "Image"
+  ## Captures one panel widget.
+  captureWidget(WidgetPanel, name, pos, size)
 
 proc endSemanticFrame*(frameNumber: int): string =
-  ## End the frame and return YAML-like output of all captured widgets.
+  ## Ends the frame and returns YAML-like output of captured widgets.
   if not semanticEnabled:
     return ""
 
   var output = &"Frame {frameNumber}:\n"
-
-  # Group widgets by parent context
   var contexts: seq[string] = @[]
+
   for widget in capturedWidgets:
     if widget.parent notin contexts:
       contexts.add(widget.parent)
 
   for ctx in contexts:
-    let contextName = if ctx == "": "Root" else: ctx
+    let contextName =
+      if ctx.len == 0:
+        "Root"
+      else:
+        ctx
     output.add(&"  {contextName}:\n")
     for widget in capturedWidgets:
-      if widget.parent == ctx:
-        let kindStr = kindToString(widget.kind)
-        let posX = widget.pos.x.int
-        let posY = widget.pos.y.int
-        let sizeW = widget.size.x.int
-        let sizeH = widget.size.y.int
-        if widget.size.x > 0 and widget.size.y > 0:
-          output.add(&"    - {kindStr} \"{widget.name}\" @ ({posX}, {posY}) {sizeW}x{sizeH}\n")
-        else:
-          output.add(&"    - {kindStr} \"{widget.name}\" @ ({posX}, {posY})\n")
+      if widget.parent != ctx:
+        continue
+      let
+        kindStr = kindToString(widget.kind)
+        posX = widget.pos.x.int
+        posY = widget.pos.y.int
+        sizeW = widget.size.x.int
+        sizeH = widget.size.y.int
+      if widget.size.x > 0 and widget.size.y > 0:
+        output.add(
+          &"    - {kindStr} \"{widget.name}\" @ ({posX}, {posY}) " &
+          &"{sizeW}x{sizeH}\n"
+        )
+      else:
+        output.add(
+          &"    - {kindStr} \"{widget.name}\" @ ({posX}, {posY})\n"
+        )
 
   output

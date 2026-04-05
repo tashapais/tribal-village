@@ -11,23 +11,11 @@
 ##   TV_AUDIT_SEED     - Random seed for reproducibility (default: 42)
 ##   TV_AUDIT_INTERVAL - Snapshot interval in steps (default: 100)
 
-import std/[os, strutils, strformat, tables, algorithm, json, math]
+import std/[os, strutils, strformat, tables, json, math]
 import environment
 import agent_control
 import types
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-proc parseEnvInt(name: string, fallback: int): int =
-  let raw = getEnv(name, "")
-  if raw.len == 0:
-    return fallback
-  try:
-    parseInt(raw)
-  except ValueError:
-    fallback
+import envconfig
 
 # ---------------------------------------------------------------------------
 # Metric types
@@ -399,16 +387,16 @@ when isMainModule:
   report.snapshots.add collectSnapshot(env, 0)
 
   # Run simulation
-  var actions: array[MapAgents, uint8]
-  for step in 1 .. steps:
+  var actions: array[MapAgents, uint16]
+  for stepIdx in 1 .. steps:
     actions = getActions(env)
     env.step(addr actions)
 
-    if step mod interval == 0 or step == steps:
-      report.snapshots.add collectSnapshot(env, step)
+    if stepIdx mod interval == 0 or stepIdx == steps:
+      report.snapshots.add collectSnapshot(env, stepIdx)
 
-    if not jsonMode and step mod 500 == 0:
-      echo fmt"  step {step}/{steps}..."
+    if not jsonMode and stepIdx mod 500 == 0:
+      echo fmt"  step {stepIdx}/{steps}..."
 
   # Detect events from snapshot differences
   report.detectEvents()

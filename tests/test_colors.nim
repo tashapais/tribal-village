@@ -6,11 +6,10 @@
 ## - isTileFrozen/isThingFrozen check frozen state accurately
 ## - Team color palette is distinct and valid
 
-import std/[unittest, math]
+import std/unittest
 import environment
 import common
 import types
-import colors
 import test_utils
 
 const
@@ -18,12 +17,6 @@ const
 
 proc approxEqual(a, b: float32, eps: float32 = Epsilon): bool =
   abs(a - b) < eps
-
-proc approxEqual(a, b: TileColor, eps: float32 = Epsilon): bool =
-  approxEqual(a.r, b.r, eps) and
-  approxEqual(a.g, b.g, eps) and
-  approxEqual(a.b, b.b, eps) and
-  approxEqual(a.intensity, b.intensity, eps)
 
 # ---------------------------------------------------------------------------
 # TileColor Constants Tests

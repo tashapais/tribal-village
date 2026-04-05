@@ -8,9 +8,8 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
-from tribal_village_env.build import ensure_nim_library_current
+from tribal_village_env.build import ensure_nim_binary_current, ensure_nim_library_current
 from tribal_village_env.config import DEFAULT_ANSI_STEPS, DEFAULT_PROFILE_STEPS
-from tribal_village_env.environment import TribalVillageEnv
 
 # Optional CoGames training integration
 try:
@@ -32,12 +31,6 @@ if attach_train_command is not None:
     attach_train_command(
         app, command_name="train", require_cogames=False, console_fallback=console
     )
-
-
-def _project_root() -> Path:
-    return Path(__file__).resolve().parent.parent
-
-
 # ---------------------------------------------------------------------------
 # Shared option type aliases (defined once, used by both play and root)
 # ---------------------------------------------------------------------------
@@ -69,16 +62,7 @@ def _run_gui(
     render_timing_every: int,
     render_timing_exit: int | None,
 ) -> None:
-    project_root = _project_root()
-    cmd = ["nim", "r", "-d:release"]
-    if profile:
-        cmd.extend(["--profiler:on", "--stackTrace:on", "--lineTrace:on"])
-    if step_timing:
-        cmd.append("-d:stepTiming")
-    if render_timing:
-        cmd.append("-d:renderTiming")
-    cmd.append("tribal_village.nim")
-
+    project_root = Path(__file__).resolve().parent.parent
     env = os.environ.copy()
     if profile:
         env["TV_PROFILE_STEPS"] = str(profile_steps)
@@ -92,29 +76,43 @@ def _run_gui(
         if render_timing_exit is not None:
             env["TV_RENDER_TIMING_EXIT"] = str(render_timing_exit)
 
-    console.print("[cyan]Launching Tribal Village GUI via Nim...[/cyan]")
+    if profile or step_timing or render_timing:
+        cmd = ["nim", "r", "-d:release"]
+        if profile:
+            cmd.extend(["--profiler:on", "--stackTrace:on", "--lineTrace:on"])
+        if step_timing:
+            cmd.append("-d:stepTiming")
+        if render_timing:
+            cmd.append("-d:renderTiming")
+        cmd.extend(["--path:src", "tribal_village.nim"])
+        console.print("[cyan]Launching Tribal Village GUI via Nim...[/cyan]")
+    else:
+        cmd = [str(ensure_nim_binary_current())]
+        console.print("[cyan]Launching Tribal Village GUI...[/cyan]")
+
     subprocess.run(cmd, cwd=project_root, check=True, env=env)
 
 
 def _run_ansi(steps: int, max_steps: int | None, random_actions: bool) -> None:
+    from tribal_village_env.environment import TribalVillageEnv
+
     config: dict[str, object] = {"render_mode": "ansi"}
     if max_steps is not None:
         config["max_steps"] = max_steps
 
     env = TribalVillageEnv(config=config)
 
-    def _make_actions() -> dict[str, int]:
-        return {
-            f"agent_{agent_id}": int(env.single_action_space.sample()) if random_actions else 0
-            for agent_id in range(env.num_agents)
-        }
-
     try:
         env.reset()
         console.print(env.render())
 
         for step in range(steps):
-            actions = _make_actions()
+            actions = {
+                f"agent_{agent_id}": (
+                    int(env.single_action_space.sample()) if random_actions else 0
+                )
+                for agent_id in range(env.num_agents)
+            }
             _, _, terminated, truncated, _ = env.step(actions)
             console.print(env.render())
 
@@ -142,8 +140,6 @@ def play(
     render_timing_every: RenderTimingEvery = 1,
     render_timing_exit: RenderTimingExit = None,
 ) -> None:
-    ensure_nim_library_current()
-
     render_mode = render.lower()
     if render_mode not in {"gui", "ansi"}:
         console.print("[red]Invalid render mode. Use 'gui' or 'ansi'.[/red]")
@@ -163,6 +159,7 @@ def play(
             render_timing_exit=render_timing_exit,
         )
     else:
+        ensure_nim_library_current()
         _run_ansi(steps=steps, max_steps=max_steps, random_actions=random_actions)
 
 
@@ -186,23 +183,7 @@ def root(
 ) -> None:
     """Default to play when no subcommand is provided."""
     if ctx.invoked_subcommand is None:
-        ctx.invoke(
-            play,
-            render=render,
-            steps=steps,
-            max_steps=max_steps,
-            random_actions=random_actions,
-            profile=profile,
-            profile_steps=profile_steps,
-            step_timing=step_timing,
-            step_timing_target=step_timing_target,
-            step_timing_window=step_timing_window,
-            render_timing=render_timing,
-            render_timing_target=render_timing_target,
-            render_timing_window=render_timing_window,
-            render_timing_every=render_timing_every,
-            render_timing_exit=render_timing_exit,
-        )
+        ctx.forward(play)
 
 
 if __name__ == "__main__":

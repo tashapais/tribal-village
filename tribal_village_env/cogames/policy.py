@@ -29,27 +29,13 @@ class TribalPolicyEnvInfo:
     num_agents: int
 
     @property
-    def action_names(self) -> list[str]:
-        return [f"action_{idx}" for idx in range(self.action_space.n)]
-
-    @property
     def actions(self) -> list[SimpleNamespace]:
         """Adapter expected by MultiAgentPolicy/PolicyEnvInterface."""
 
-        return [SimpleNamespace(name=name) for name in self.action_names]
-
-    def as_shim_env(self) -> SimpleNamespace:
-        """Shape-compatible shim used by PufferLib's default model."""
-
-        shim = SimpleNamespace(
-            single_observation_space=self.observation_space,
-            single_action_space=self.action_space,
-            observation_space=self.observation_space,
-            action_space=self.action_space,
-            num_agents=self.num_agents,
-        )
-        shim.env = shim
-        return shim
+        return [
+            SimpleNamespace(name=f"action_{idx}")
+            for idx in range(self.action_space.n)
+        ]
 
 
 class TribalVillagePufferPolicy(MultiAgentPolicy, AgentPolicy):
@@ -67,13 +53,22 @@ class TribalVillagePufferPolicy(MultiAgentPolicy, AgentPolicy):
         MultiAgentPolicy.__init__(self, policy_env_info)
         AgentPolicy.__init__(self, policy_env_info)
 
-        self._net = pufferlib.models.Default(
-            policy_env_info.as_shim_env(), hidden_size=hidden_size
-        )  # type: ignore[arg-type]
+        shim_env = SimpleNamespace(
+            single_observation_space=policy_env_info.observation_space,
+            single_action_space=policy_env_info.action_space,
+            observation_space=policy_env_info.observation_space,
+            action_space=policy_env_info.action_space,
+            num_agents=policy_env_info.num_agents,
+        )
+        shim_env.env = shim_env
+
+        self._net = pufferlib.models.Default(shim_env, hidden_size=hidden_size)  # type: ignore[arg-type]
         if device is not None:
             self._net = self._net.to(torch.device(device))
 
-        self._action_names = policy_env_info.action_names
+        self._action_names = [
+            f"action_{idx}" for idx in range(policy_env_info.action_space.n)
+        ]
         self._num_actions = len(self._action_names)
         self._device = next(self._net.parameters()).device
 

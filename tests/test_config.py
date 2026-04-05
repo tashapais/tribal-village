@@ -5,7 +5,6 @@ import math
 import pytest
 
 from tribal_village_env.config import (
-    Config,
     EnvironmentConfig,
     PolicyConfig,
     PPOConfig,

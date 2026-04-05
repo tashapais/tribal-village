@@ -1,8 +1,12 @@
 """Tests for the tribal_village CLI (typer app)."""
 
+from pathlib import Path
+from types import SimpleNamespace
+
 from typer.testing import CliRunner
 
 from tests.conftest import requires_nim_library
+import tribal_village_env.cli as cli
 from tribal_village_env.cli import app
 
 runner = CliRunner()
@@ -38,6 +42,96 @@ class TestInvalidRenderMode:
     def test_invalid_render_mode(self):
         result = runner.invoke(app, ["play", "--render", "invalid"])
         assert result.exit_code != 0
+
+
+class TestPlayDispatch:
+    """Verify render-mode-specific startup work."""
+
+    def test_play_gui_skips_nim_library_refresh(self, monkeypatch):
+        gui_calls: list[str] = []
+
+        monkeypatch.setattr(
+            cli, "ensure_nim_library_current", lambda: gui_calls.append("lib")
+        )
+        monkeypatch.setattr(
+            cli,
+            "_run_gui",
+            lambda **_: gui_calls.append("gui"),
+        )
+
+        result = runner.invoke(app, ["play", "--render", "gui"])
+        assert result.exit_code == 0
+        assert gui_calls == ["gui"]
+
+    def test_play_ansi_refreshes_nim_library(self, monkeypatch):
+        ansi_calls: list[str] = []
+
+        monkeypatch.setattr(
+            cli, "ensure_nim_library_current", lambda: ansi_calls.append("lib")
+        )
+        monkeypatch.setattr(
+            cli,
+            "_run_ansi",
+            lambda **_: ansi_calls.append("ansi"),
+        )
+
+        result = runner.invoke(app, ["play", "--render", "ansi"])
+        assert result.exit_code == 0
+        assert ansi_calls == ["lib", "ansi"]
+
+
+class TestGuiLaunchStrategy:
+    """Verify the GUI launcher uses the fast path when possible."""
+
+    def test_run_gui_uses_cached_binary_without_instrumentation(self, monkeypatch):
+        binary_path = Path("/tmp/tribal_village")
+        calls: list[list[str]] = []
+
+        monkeypatch.setattr(cli, "ensure_nim_binary_current", lambda: binary_path)
+        monkeypatch.setattr(
+            cli.subprocess,
+            "run",
+            lambda cmd, **kwargs: calls.append(cmd) or SimpleNamespace(returncode=0),
+        )
+
+        cli._run_gui(
+            profile=False,
+            profile_steps=1,
+            step_timing=False,
+            step_timing_target=0,
+            step_timing_window=0,
+            render_timing=False,
+            render_timing_target=0,
+            render_timing_window=0,
+            render_timing_every=1,
+            render_timing_exit=None,
+        )
+
+        assert calls == [[str(binary_path)]]
+
+    def test_run_gui_uses_nim_when_instrumented(self, monkeypatch):
+        calls: list[list[str]] = []
+
+        monkeypatch.setattr(
+            cli.subprocess,
+            "run",
+            lambda cmd, **kwargs: calls.append(cmd) or SimpleNamespace(returncode=0),
+        )
+
+        cli._run_gui(
+            profile=False,
+            profile_steps=1,
+            step_timing=True,
+            step_timing_target=0,
+            step_timing_window=1,
+            render_timing=False,
+            render_timing_target=0,
+            render_timing_window=0,
+            render_timing_every=1,
+            render_timing_exit=None,
+        )
+
+        assert calls == [["nim", "r", "-d:release", "-d:stepTiming", "--path:src", "tribal_village.nim"]]
 
 
 @requires_nim_library

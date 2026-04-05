@@ -68,6 +68,9 @@ const
   ResourceCarryCapacity* = 5
   MineDepositAmount* = 100
   BarrelCapacity* = 50
+  TeamColorNames* = [
+    "RED", "ORANGE", "YELLOW", "GREEN", "MAGENTA", "BLUE", "GRAY", "PINK"
+  ]
   ResourceNodeInitial* = 25
   TownCenterPopCap* = 5
   HousePopCap* = 4
@@ -78,6 +81,7 @@ const
   CowMilkCooldown* = 25
   BearMaxHp* = 6
   BearAttackDamage* = 2
+
   BearAggroRadius* = 6
   WolfMaxHp* = 3
   WolfAttackDamage* = 1
@@ -652,3 +656,11 @@ const
 
   # Derived constants
   VillagerMaxHp* = AgentMaxHp
+
+proc teamColorName*(teamId: int): string {.inline.} =
+  if teamId >= 0 and teamId < TeamColorNames.len:
+    TeamColorNames[teamId]
+  elif teamId == TeamColorNames.len:
+    "GOBLIN"
+  else:
+    "NEUTRAL"

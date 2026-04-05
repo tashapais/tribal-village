@@ -77,7 +77,17 @@ suite "Behavior: Auto-Repair Damaged Buildings":
     runGameSteps(env, 30)
 
     # Find a building to damage (prefer actual buildings over walls)
-    let damagedBuilding = findBuildingToTest(env, 0)
+    let damagedBuilding = block:
+      var candidate: Thing = nil
+      for thing in env.things:
+        if thing.isNil or thing.teamId != 0 or thing.maxHp <= 0 or thing.hp != thing.maxHp:
+          continue
+        if isBuildingKind(thing.kind) and thing.kind notin {Wall, Door}:
+          candidate = thing
+          break
+        if candidate.isNil and thing.kind == Wall:
+          candidate = thing
+      candidate
 
     if damagedBuilding.isNil:
       echo "  No building found to damage, skipping repair test"
@@ -333,7 +343,16 @@ suite "Behavior: 300-Step Simulation Summary":
     runGameSteps(env, ShortSteps)
 
     echo fmt"  After {ShortSteps * 2} steps:"
-    let damaged = countDamagedBuildings(env, 0)
+    let damaged = block:
+      var remaining = 0
+      for thing in env.things:
+        if thing.isNil:
+          continue
+        if thing.teamId == 0 and thing.maxHp > 0 and
+            (isBuildingKind(thing.kind) or thing.kind in {Wall, Door}) and
+            thing.hp < thing.maxHp:
+          inc remaining
+      remaining
     echo fmt"    Damaged buildings remaining: {damaged}"
 
     # Run final phase

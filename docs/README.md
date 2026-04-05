@@ -53,7 +53,6 @@
 ## Analysis (`analysis/`)
 - `analysis/ai_behavior_analysis.md`: AI role overview and invalid action root causes.
 - `analysis/codebase_audit.md`: full codebase audit.
-- `analysis/codebase-beads-status.md`: codebase beads status tracking.
 - `analysis/docs_accuracy_audit.md`: documentation accuracy audit.
 - `analysis/entity_interaction_analysis.md`: entity interaction analysis.
 - `analysis/game_mechanics_analysis.md`: game mechanics action failure analysis.

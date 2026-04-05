@@ -1,251 +1,225 @@
-## Tests for state_diff.nim - Step-by-step game state diff logger.
-## Must compile with -d:stateDiff to get the real implementation.
-##
-## Run: nim r -d:stateDiff --path:src tests/domain_state_diff.nim
+## Domain checks for step-by-step state diff logging.
 
-import std/[unittest]
-import environment
-import types
-import items
-import state_diff
-import test_utils
+import
+  environment, items, state_diff, test_utils, types
 
-suite "State Diff - Snapshot Capture":
-  test "captureSnapshot captures step and victory state":
-    let env = makeEmptyEnv()
-    env.currentStep = 42
-    env.victoryWinner = -1
+proc checkCaptureSnapshotBasics() =
+  ## Verify snapshot capture of top-level state.
+  echo "Testing state diff snapshot basics"
 
-    let snap = captureSnapshot(env)
-    check snap.step == 42
-    check snap.victoryWinner == -1
+  let env = makeEmptyEnv()
+  env.currentStep = 42
+  env.victoryWinner = -1
 
-  test "captureSnapshot captures agent counts by team":
-    let env = makeEmptyEnv()
-    # Add 3 alive agents on team 0
-    discard addAgentAt(env, 0, ivec2(10, 10))
-    discard addAgentAt(env, 1, ivec2(12, 10))
-    discard addAgentAt(env, 2, ivec2(14, 10))
-    # Add 1 alive agent on team 1
-    discard addAgentAt(env, MapAgentsPerTeam, ivec2(30, 30))
+  let snap = captureSnapshot(env)
+  doAssert snap.step == 42
+  doAssert snap.victoryWinner == -1
 
-    let snap = captureSnapshot(env)
-    check snap.teams[0].aliveCount == 3
-    check snap.teams[0].villagerCount == 3  # All are villagers
-    check snap.teams[1].aliveCount == 1
-    check snap.teams[1].villagerCount == 1
+proc checkCaptureSnapshotAgents() =
+  ## Verify snapshot capture of agent counts and classes.
+  echo "Testing state diff agent capture"
 
-  test "captureSnapshot captures dead agents":
-    let env = makeEmptyEnv()
-    discard addAgentAt(env, 0, ivec2(10, 10))
-    discard addAgentAt(env, 1, ivec2(12, 10))
-    # Kill agent 1
-    env.terminated[1] = 1.0
+  let env = makeEmptyEnv()
+  discard addAgentAt(env, 0, ivec2(10, 10))
+  discard addAgentAt(env, 1, ivec2(12, 10))
+  discard addAgentAt(env, 2, ivec2(14, 10))
+  discard addAgentAt(env, MapAgentsPerTeam, ivec2(30, 30))
 
-    let snap = captureSnapshot(env)
-    check snap.teams[0].aliveCount == 1
-    check snap.teams[0].deadCount == 1
+  var snap = captureSnapshot(env)
+  doAssert snap.teams[0].aliveCount == 3
+  doAssert snap.teams[0].villagerCount == 3
+  doAssert snap.teams[1].aliveCount == 1
+  doAssert snap.teams[1].villagerCount == 1
 
-  test "captureSnapshot captures unit class diversity":
-    let env = makeEmptyEnv()
-    discard addAgentAt(env, 0, ivec2(10, 10), unitClass = UnitVillager)
-    discard addAgentAt(env, 1, ivec2(12, 10), unitClass = UnitArcher)
-    discard addAgentAt(env, 2, ivec2(14, 10), unitClass = UnitKnight)
-    discard addAgentAt(env, 3, ivec2(16, 10), unitClass = UnitManAtArms)
-    discard addAgentAt(env, 4, ivec2(18, 10), unitClass = UnitMonk)
+  let deadEnv = makeEmptyEnv()
+  discard addAgentAt(deadEnv, 0, ivec2(10, 10))
+  discard addAgentAt(deadEnv, 1, ivec2(12, 10))
+  deadEnv.terminated[1] = 1.0
+  snap = captureSnapshot(deadEnv)
+  doAssert snap.teams[0].aliveCount == 1
+  doAssert snap.teams[0].deadCount == 1
 
-    let snap = captureSnapshot(env)
-    check snap.teams[0].villagerCount == 1
-    check snap.teams[0].archerCount == 1
-    check snap.teams[0].knightCount == 1
-    check snap.teams[0].manAtArmsCount == 1
-    check snap.teams[0].monkCount == 1
+  let classEnv = makeEmptyEnv()
+  discard addAgentAt(classEnv, 0, ivec2(10, 10), unitClass = UnitVillager)
+  discard addAgentAt(classEnv, 1, ivec2(12, 10), unitClass = UnitArcher)
+  discard addAgentAt(classEnv, 2, ivec2(14, 10), unitClass = UnitKnight)
+  discard addAgentAt(
+    classEnv,
+    3,
+    ivec2(16, 10),
+    unitClass = UnitManAtArms
+  )
+  discard addAgentAt(classEnv, 4, ivec2(18, 10), unitClass = UnitMonk)
 
-  test "captureSnapshot captures stockpile resources":
-    let env = makeEmptyEnv()
-    setStockpile(env, 0, ResourceFood, 100)
-    setStockpile(env, 0, ResourceWood, 200)
-    setStockpile(env, 0, ResourceGold, 50)
-    setStockpile(env, 0, ResourceStone, 30)
-    setStockpile(env, 0, ResourceWater, 10)
+  snap = captureSnapshot(classEnv)
+  doAssert snap.teams[0].villagerCount == 1
+  doAssert snap.teams[0].archerCount == 1
+  doAssert snap.teams[0].knightCount == 1
+  doAssert snap.teams[0].manAtArmsCount == 1
+  doAssert snap.teams[0].monkCount == 1
 
-    let snap = captureSnapshot(env)
-    check snap.teams[0].food == 100
-    check snap.teams[0].wood == 200
-    check snap.teams[0].gold == 50
-    check snap.teams[0].stone == 30
-    check snap.teams[0].water == 10
+proc checkCaptureSnapshotResourcesAndBuildings() =
+  ## Verify snapshot capture of resources, buildings, and projectiles.
+  echo "Testing state diff resources and buildings"
 
-  test "captureSnapshot captures building counts":
-    let env = makeEmptyEnv()
-    discard addBuilding(env, House, ivec2(5, 5), 0)
-    discard addBuilding(env, House, ivec2(7, 5), 0)
-    discard addBuilding(env, House, ivec2(9, 5), 0)
-    discard addBuilding(env, GuardTower, ivec2(11, 5), 0)
-    discard addBuilding(env, Wall, ivec2(13, 5), 0)
-    discard addBuilding(env, Market, ivec2(15, 5), 0)
-    discard addBuilding(env, Castle, ivec2(17, 5), 0)
+  let env = makeEmptyEnv()
+  setStockpile(env, 0, ResourceFood, 100)
+  setStockpile(env, 0, ResourceWood, 200)
+  setStockpile(env, 0, ResourceGold, 50)
+  setStockpile(env, 0, ResourceStone, 30)
+  setStockpile(env, 0, ResourceWater, 10)
 
-    let snap = captureSnapshot(env)
-    check snap.houseCount == 3
-    check snap.towerCount == 1
-    check snap.wallCount == 1
-    check snap.marketCount == 1
-    check snap.castleCount == 1
+  discard addBuilding(env, House, ivec2(5, 5), 0)
+  discard addBuilding(env, House, ivec2(7, 5), 0)
+  discard addBuilding(env, House, ivec2(9, 5), 0)
+  discard addBuilding(env, GuardTower, ivec2(11, 5), 0)
+  discard addBuilding(env, Wall, ivec2(13, 5), 0)
+  discard addBuilding(env, Market, ivec2(15, 5), 0)
+  discard addBuilding(env, Castle, ivec2(17, 5), 0)
 
-  test "captureSnapshot counts projectiles":
-    let env = makeEmptyEnv()
-    env.projectiles.add(Projectile(countdown: 5, lifetime: 10))
-    env.projectiles.add(Projectile(countdown: 3, lifetime: 10))
+  env.projectiles.add(Projectile(countdown: 5, lifetime: 10))
+  env.projectiles.add(Projectile(countdown: 3, lifetime: 10))
 
-    let snap = captureSnapshot(env)
-    check snap.projectileCount == 2
+  let snap = captureSnapshot(env)
+  doAssert snap.teams[0].food == 100
+  doAssert snap.teams[0].wood == 200
+  doAssert snap.teams[0].gold == 50
+  doAssert snap.teams[0].stone == 30
+  doAssert snap.teams[0].water == 10
+  doAssert snap.houseCount == 3
+  doAssert snap.towerCount == 1
+  doAssert snap.wallCount == 1
+  doAssert snap.marketCount == 1
+  doAssert snap.castleCount == 1
+  doAssert snap.projectileCount == 2
 
-  test "captureSnapshot empty environment":
-    let env = makeEmptyEnv()
+  let emptyEnv = makeEmptyEnv()
+  let emptySnap = captureSnapshot(emptyEnv)
+  doAssert emptySnap.step == 0
+  doAssert emptySnap.victoryWinner == -1
+  doAssert emptySnap.thingCount == 0
+  doAssert emptySnap.projectileCount == 0
+  doAssert emptySnap.houseCount == 0
+  for teamId in 0 ..< MapRoomObjectsTeams:
+    doAssert emptySnap.teams[teamId].aliveCount == 0
+    doAssert emptySnap.teams[teamId].food == 0
 
-    let snap = captureSnapshot(env)
-    check snap.step == 0
-    check snap.victoryWinner == -1
-    check snap.thingCount == 0
-    check snap.projectileCount == 0
-    check snap.houseCount == 0
-    for teamId in 0 ..< MapRoomObjectsTeams:
-      check snap.teams[teamId].aliveCount == 0
-      check snap.teams[teamId].food == 0
+proc checkCompareAndLog() =
+  ## Verify snapshot comparison across several state changes.
+  echo "Testing state diff compareAndLog"
 
-suite "State Diff - Compare and Log":
-  test "compareAndLog detects resource changes":
-    let env = makeEmptyEnv()
-    setStockpile(env, 0, ResourceFood, 100)
-    let snap1 = captureSnapshot(env)
+  let env = makeEmptyEnv()
+  setStockpile(env, 0, ResourceFood, 100)
+  let snap1 = captureSnapshot(env)
 
-    setStockpile(env, 0, ResourceFood, 150)
-    let snap2 = captureSnapshot(env)
+  setStockpile(env, 0, ResourceFood, 150)
+  let snap2 = captureSnapshot(env)
+  compareAndLog(snap1, snap2)
+  doAssert snap1.teams[0].food == 100
+  doAssert snap2.teams[0].food == 150
 
-    # Should not crash; output goes to stdout
-    compareAndLog(snap1, snap2)
-    check snap1.teams[0].food == 100
-    check snap2.teams[0].food == 150
+  let buildEnv = makeEmptyEnv()
+  let buildSnap1 = captureSnapshot(buildEnv)
+  discard addBuilding(buildEnv, House, ivec2(5, 5), 0)
+  let buildSnap2 = captureSnapshot(buildEnv)
+  compareAndLog(buildSnap1, buildSnap2)
+  doAssert buildSnap1.houseCount == 0
+  doAssert buildSnap2.houseCount == 1
 
-  test "compareAndLog detects building count changes":
-    let env = makeEmptyEnv()
-    let snap1 = captureSnapshot(env)
+  let sameEnv = makeEmptyEnv()
+  setStockpile(sameEnv, 0, ResourceFood, 100)
+  discard addBuilding(sameEnv, House, ivec2(5, 5), 0)
+  let sameSnap1 = captureSnapshot(sameEnv)
+  let sameSnap2 = captureSnapshot(sameEnv)
+  compareAndLog(sameSnap1, sameSnap2)
+  doAssert sameSnap1.houseCount == sameSnap2.houseCount
+  doAssert sameSnap1.teams[0].food == sameSnap2.teams[0].food
 
-    discard addBuilding(env, House, ivec2(5, 5), 0)
-    let snap2 = captureSnapshot(env)
+  let victoryEnv = makeEmptyEnv()
+  victoryEnv.victoryWinner = -1
+  let victorySnap1 = captureSnapshot(victoryEnv)
+  victoryEnv.victoryWinner = 0
+  let victorySnap2 = captureSnapshot(victoryEnv)
+  compareAndLog(victorySnap1, victorySnap2)
+  doAssert victorySnap1.victoryWinner == -1
+  doAssert victorySnap2.victoryWinner == 0
 
-    compareAndLog(snap1, snap2)
-    check snap1.houseCount == 0
-    check snap2.houseCount == 1
+  let deathEnv = makeEmptyEnv()
+  discard addAgentAt(deathEnv, 0, ivec2(10, 10))
+  discard addAgentAt(deathEnv, 1, ivec2(12, 10))
+  let deathSnap1 = captureSnapshot(deathEnv)
+  deathEnv.terminated[1] = 1.0
+  let deathSnap2 = captureSnapshot(deathEnv)
+  compareAndLog(deathSnap1, deathSnap2)
+  doAssert deathSnap1.teams[0].aliveCount == 2
+  doAssert deathSnap2.teams[0].aliveCount == 1
+  doAssert deathSnap2.teams[0].deadCount == 1
 
-  test "compareAndLog no-op on identical snapshots":
-    let env = makeEmptyEnv()
-    setStockpile(env, 0, ResourceFood, 100)
-    discard addBuilding(env, House, ivec2(5, 5), 0)
+proc checkPrePostStep() =
+  ## Verify pre-step and post-step integration.
+  echo "Testing state diff pre/post step"
 
-    let snap1 = captureSnapshot(env)
-    let snap2 = captureSnapshot(env)
+  let env = makeEmptyEnv()
+  setStockpile(env, 0, ResourceFood, 100)
 
-    # Should produce no output (identical snapshots)
-    compareAndLog(snap1, snap2)
-    check snap1.houseCount == snap2.houseCount
-    check snap1.teams[0].food == snap2.teams[0].food
+  capturePreStep(env)
+  doAssert diffState.hasSnapshot
 
-  test "compareAndLog detects victory winner change":
-    let env = makeEmptyEnv()
-    env.victoryWinner = -1
-    let snap1 = captureSnapshot(env)
+  setStockpile(env, 0, ResourceFood, 200)
+  env.currentStep = 1
+  comparePostStep(env)
+  doAssert diffState.prevSnapshot.teams[0].food == 200
 
-    env.victoryWinner = 0
-    let snap2 = captureSnapshot(env)
+  initStateDiff()
+  let emptyEnv = makeEmptyEnv()
+  comparePostStep(emptyEnv)
+  doAssert not diffState.hasSnapshot
 
-    compareAndLog(snap1, snap2)
-    check snap1.victoryWinner == -1
-    check snap2.victoryWinner == 0
+  capturePreStep(emptyEnv)
+  doAssert diffState.hasSnapshot
+  initStateDiff()
+  doAssert not diffState.hasSnapshot
 
-  test "compareAndLog detects alive/dead count changes":
-    let env = makeEmptyEnv()
-    discard addAgentAt(env, 0, ivec2(10, 10))
-    discard addAgentAt(env, 1, ivec2(12, 10))
-    let snap1 = captureSnapshot(env)
+  initStateDiff()
+  diffState.hasSnapshot = true
+  ensureStateDiffInit()
+  doAssert diffState.hasSnapshot
 
-    env.terminated[1] = 1.0
-    let snap2 = captureSnapshot(env)
+proc checkMultiTeamTracking() =
+  ## Verify snapshots and diffs track teams independently.
+  echo "Testing state diff multi-team tracking"
 
-    compareAndLog(snap1, snap2)
-    check snap1.teams[0].aliveCount == 2
-    check snap2.teams[0].aliveCount == 1
-    check snap2.teams[0].deadCount == 1
+  let env = makeEmptyEnv()
+  setStockpile(env, 0, ResourceFood, 100)
+  setStockpile(env, 0, ResourceWood, 200)
+  if MapRoomObjectsTeams > 1:
+    setStockpile(env, 1, ResourceFood, 50)
+    setStockpile(env, 1, ResourceGold, 300)
 
-suite "State Diff - Pre/Post Step":
-  test "capturePreStep and comparePostStep integration":
-    let env = makeEmptyEnv()
-    setStockpile(env, 0, ResourceFood, 100)
+  let snap = captureSnapshot(env)
+  doAssert snap.teams[0].food == 100
+  doAssert snap.teams[0].wood == 200
+  if MapRoomObjectsTeams > 1:
+    doAssert snap.teams[1].food == 50
+    doAssert snap.teams[1].gold == 300
 
-    capturePreStep(env)
-    check diffState.hasSnapshot
+  let diffEnv = makeEmptyEnv()
+  setStockpile(diffEnv, 0, ResourceFood, 100)
+  if MapRoomObjectsTeams > 1:
+    setStockpile(diffEnv, 1, ResourceFood, 100)
+  let snap1 = captureSnapshot(diffEnv)
+  setStockpile(diffEnv, 0, ResourceFood, 200)
+  let snap2 = captureSnapshot(diffEnv)
+  compareAndLog(snap1, snap2)
+  doAssert snap2.teams[0].food == 200
+  if MapRoomObjectsTeams > 1:
+    doAssert snap2.teams[1].food == 100
 
-    # Modify state
-    setStockpile(env, 0, ResourceFood, 200)
-    env.currentStep = 1
+checkCaptureSnapshotBasics()
+checkCaptureSnapshotAgents()
+checkCaptureSnapshotResourcesAndBuildings()
+checkCompareAndLog()
+checkPrePostStep()
+checkMultiTeamTracking()
 
-    # Should log diff
-    comparePostStep(env)
-    # After compare, prev snapshot updated to new state
-    check diffState.prevSnapshot.teams[0].food == 200
-
-  test "comparePostStep no-op without capturePreStep":
-    initStateDiff()
-    let env = makeEmptyEnv()
-
-    # Should not crash even without prior snapshot
-    comparePostStep(env)
-    check not diffState.hasSnapshot
-
-  test "initStateDiff resets state":
-    let env = makeEmptyEnv()
-    capturePreStep(env)
-    check diffState.hasSnapshot
-
-    initStateDiff()
-    check not diffState.hasSnapshot
-
-  test "ensureStateDiffInit is idempotent":
-    initStateDiff()
-    diffState.hasSnapshot = true
-    ensureStateDiffInit()
-    # Should not reset since already initialized
-    check diffState.hasSnapshot
-
-suite "State Diff - Multi-Team Tracking":
-  test "snapshot tracks multiple teams independently":
-    let env = makeEmptyEnv()
-    setStockpile(env, 0, ResourceFood, 100)
-    setStockpile(env, 0, ResourceWood, 200)
-    if MapRoomObjectsTeams > 1:
-      setStockpile(env, 1, ResourceFood, 50)
-      setStockpile(env, 1, ResourceGold, 300)
-
-    let snap = captureSnapshot(env)
-    check snap.teams[0].food == 100
-    check snap.teams[0].wood == 200
-    if MapRoomObjectsTeams > 1:
-      check snap.teams[1].food == 50
-      check snap.teams[1].gold == 300
-
-  test "compareAndLog shows per-team diffs":
-    let env = makeEmptyEnv()
-    setStockpile(env, 0, ResourceFood, 100)
-    if MapRoomObjectsTeams > 1:
-      setStockpile(env, 1, ResourceFood, 100)
-    let snap1 = captureSnapshot(env)
-
-    # Change only team 0
-    setStockpile(env, 0, ResourceFood, 200)
-    let snap2 = captureSnapshot(env)
-
-    compareAndLog(snap1, snap2)
-    check snap2.teams[0].food == 200
-    if MapRoomObjectsTeams > 1:
-      check snap2.teams[1].food == 100  # Unchanged
+echo "State diff domain checks passed"

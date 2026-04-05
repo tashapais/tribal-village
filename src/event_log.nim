@@ -1,29 +1,23 @@
-## event_log.nim - Human-readable game event logging
-##
-## Gated behind -d:eventLog compile flag. Zero-cost when disabled.
-## Logs key game events as they happen: spawns, deaths, building construction,
-## resource gathering/depositing, combat, monk conversions, tech research, market trades.
-##
-## Format: [Step N] TEAM_COLOR Event description
-## Filter via TV_EVENT_FILTER env var (e.g., 'combat,death,building')
-## Summary mode batches events per step instead of printing each one.
+## Human-readable event logging for selected gameplay events.
 
 when defined(eventLog):
-  import std/[strutils, os, tables, sequtils]
+  import
+    std/[os, strutils],
+    constants
 
   type
     EventCategory* = enum
-      ecSpawn       ## Agent spawned
-      ecDeath       ## Agent died
-      ecBuildStart  ## Building construction started
-      ecBuildDone   ## Building construction completed
-      ecBuildDestroy ## Building destroyed
-      ecGather      ## Resource gathered
-      ecDeposit     ## Resource deposited
-      ecCombat      ## Combat hit
-      ecConversion  ## Monk conversion
-      ecResearch    ## Technology researched
-      ecTrade       ## Market trade
+      ecSpawn         ## Agent spawned.
+      ecDeath         ## Agent died.
+      ecBuildStart    ## Building construction started.
+      ecBuildDone     ## Building construction completed.
+      ecBuildDestroy  ## Building destroyed.
+      ecGather        ## Resource gathered.
+      ecDeposit       ## Resource deposited.
+      ecCombat        ## Combat hit.
+      ecConversion    ## Monk conversion.
+      ecResearch      ## Technology researched.
+      ecTrade         ## Market trade.
 
     GameEvent* = object
       step*: int
@@ -38,141 +32,188 @@ when defined(eventLog):
       events*: seq[GameEvent]
       currentStep*: int
 
-  const TeamColorNames*: array[8, string] = [
-    "RED", "ORANGE", "YELLOW", "GREEN", "MAGENTA", "BLUE", "GRAY", "PINK"
-  ]
+  const
+    AllEventCategories = {
+      ecSpawn, ecDeath, ecBuildStart, ecBuildDone, ecBuildDestroy,
+      ecGather, ecDeposit, ecCombat, ecConversion, ecResearch, ecTrade
+    }
+    EventSummaryDivider = "========================"
+    EventSummaryDisabledValues = ["", "0", "false"]
 
-  var eventLogState*: EventLogState
-  var eventLogInitialized = false
+  var
+    eventLogState*: EventLogState
+    eventLogInitialized = false
 
-  proc categoryFromString(s: string): EventCategory =
-    case s.toLowerAscii()
-    of "spawn": ecSpawn
-    of "death": ecDeath
-    of "buildstart", "building_start": ecBuildStart
-    of "builddone", "building_done", "building": ecBuildDone
-    of "builddestroy", "building_destroy": ecBuildDestroy
-    of "gather": ecGather
-    of "deposit": ecDeposit
-    of "combat", "hit": ecCombat
-    of "conversion", "convert": ecConversion
-    of "research", "tech": ecResearch
-    of "trade", "market": ecTrade
-    else: ecCombat  # Default fallback
+  proc categoryFromString(text: string): EventCategory =
+    ## Parse one event-category filter token.
+    case text.toLowerAscii()
+    of "spawn":
+      ecSpawn
+    of "death":
+      ecDeath
+    of "buildstart", "building_start":
+      ecBuildStart
+    of "builddone", "building_done", "building":
+      ecBuildDone
+    of "builddestroy", "building_destroy":
+      ecBuildDestroy
+    of "gather":
+      ecGather
+    of "deposit":
+      ecDeposit
+    of "combat", "hit":
+      ecCombat
+    of "conversion", "convert":
+      ecConversion
+    of "research", "tech":
+      ecResearch
+    of "trade", "market":
+      ecTrade
+    else:
+      ecCombat
 
-  proc parseFilter(filterStr: string): set[EventCategory] =
-    if filterStr.len == 0 or filterStr == "*" or filterStr.toLowerAscii() == "all":
-      return {ecSpawn, ecDeath, ecBuildStart, ecBuildDone, ecBuildDestroy,
-              ecGather, ecDeposit, ecCombat, ecConversion, ecResearch, ecTrade}
+  proc parseFilter(filterText: string): set[EventCategory] =
+    ## Parse the event-category filter string from the environment.
+    if filterText.len == 0 or
+      filterText == "*" or
+      filterText.toLowerAscii() == "all":
+        return AllEventCategories
+
     result = {}
-    for part in filterStr.split(','):
+    for part in filterText.split(','):
       let trimmed = part.strip()
       if trimmed.len > 0:
         result.incl(categoryFromString(trimmed))
 
+  proc categoryLabel(category: EventCategory): string =
+    ## Return the summary label for one event category.
+    case category
+    of ecSpawn:
+      "Spawns"
+    of ecDeath:
+      "Deaths"
+    of ecBuildStart:
+      "Buildings Started"
+    of ecBuildDone:
+      "Buildings Completed"
+    of ecBuildDestroy:
+      "Buildings Destroyed"
+    of ecGather:
+      "Resources Gathered"
+    of ecDeposit:
+      "Resources Deposited"
+    of ecCombat:
+      "Combat Hits"
+    of ecConversion:
+      "Conversions"
+    of ecResearch:
+      "Tech Researched"
+    of ecTrade:
+      "Market Trades"
+
   proc initEventLog*() =
-    let filterEnv = getEnv("TV_EVENT_FILTER", "")
-    let summaryEnv = getEnv("TV_EVENT_SUMMARY", "")
+    ## Initialize event logging from environment settings.
+    let
+      filterText = getEnv("TV_EVENT_FILTER", "")
+      summaryText = getEnv("TV_EVENT_SUMMARY", "")
     eventLogState = EventLogState(
       enabled: true,
-      filter: parseFilter(filterEnv),
-      summaryMode: summaryEnv notin ["", "0", "false"],
+      filter: parseFilter(filterText),
+      summaryMode: summaryText notin EventSummaryDisabledValues,
       events: @[],
       currentStep: 0
     )
     eventLogInitialized = true
 
   proc ensureEventLogInit*() =
+    ## Initialize event logging on first use.
     if not eventLogInitialized:
       initEventLog()
 
-  proc teamColorName*(teamId: int): string =
-    if teamId >= 0 and teamId < TeamColorNames.len:
-      TeamColorNames[teamId]
-    elif teamId == 8:
-      "GOBLIN"
-    else:
-      "NEUTRAL"
+  proc formatEvent(event: GameEvent): string =
+    ## Format one game event as a human-readable log line.
+    "[Step " & $event.step & "] " &
+      teamColorName(event.teamId) & " " & event.message
 
-  proc formatEvent(ev: GameEvent): string =
-    "[Step " & $ev.step & "] " & teamColorName(ev.teamId) & " " & ev.message
-
-  proc logEvent*(category: EventCategory, teamId: int, message: string, step: int) =
+  proc logEvent*(
+    category: EventCategory,
+    teamId: int,
+    message: string,
+    step: int
+  ) =
+    ## Record or print one game event.
     ensureEventLogInit()
     if category notin eventLogState.filter:
       return
-    let ev = GameEvent(step: step, category: category, teamId: teamId, message: message)
+
+    let event = GameEvent(
+      step: step,
+      category: category,
+      teamId: teamId,
+      message: message
+    )
     if eventLogState.summaryMode:
-      eventLogState.events.add(ev)
+      eventLogState.events.add(event)
     else:
-      echo formatEvent(ev)
+      echo formatEvent(event)
 
   proc flushEventSummary*(step: int) =
-    ## In summary mode, print batched events at end of step
+    ## Print and clear the current step summary batch.
     ensureEventLogInit()
     if not eventLogState.summaryMode or eventLogState.events.len == 0:
       return
-    echo "=== Step " & $step & " Events ==="
+
+    echo "=== Step ", step, " Events ==="
     var categoryCounts: array[EventCategory, int]
-    for ev in eventLogState.events:
-      inc categoryCounts[ev.category]
-    for cat in EventCategory:
-      if categoryCounts[cat] > 0:
-        let catName = case cat
-          of ecSpawn: "Spawns"
-          of ecDeath: "Deaths"
-          of ecBuildStart: "Buildings Started"
-          of ecBuildDone: "Buildings Completed"
-          of ecBuildDestroy: "Buildings Destroyed"
-          of ecGather: "Resources Gathered"
-          of ecDeposit: "Resources Deposited"
-          of ecCombat: "Combat Hits"
-          of ecConversion: "Conversions"
-          of ecResearch: "Tech Researched"
-          of ecTrade: "Market Trades"
-        echo "  " & catName & ": " & $categoryCounts[cat]
-    # Print individual events
-    for ev in eventLogState.events:
-      echo "  " & formatEvent(ev)
-    echo "========================"
+    for event in eventLogState.events:
+      inc categoryCounts[event.category]
+    for category in EventCategory:
+      if categoryCounts[category] > 0:
+        echo "  ", categoryLabel(category), ": ", categoryCounts[category]
+    for event in eventLogState.events:
+      echo "  ", formatEvent(event)
+    echo EventSummaryDivider
     eventLogState.events.setLen(0)
 
-  # Convenience logging procs for specific event types
-  proc logSpawn*(teamId: int, unitClass: string, pos: string, step: int) =
-    logEvent(ecSpawn, teamId, "Spawned " & unitClass & " at " & pos, step)
+  proc logCombatHit*(
+    attackerTeam: int,
+    targetTeam: int,
+    attackerUnit: string,
+    targetUnit: string,
+    damage: int,
+    step: int
+  ) =
+    ## Log one combat-hit event.
+    let message =
+      attackerUnit & " hit " & teamColorName(targetTeam) & " " &
+      targetUnit & " for " & $damage & " damage"
+    logEvent(ecCombat, attackerTeam, message, step)
 
-  proc logDeath*(teamId: int, unitClass: string, pos: string, step: int) =
-    logEvent(ecDeath, teamId, unitClass & " died at " & pos, step)
-
-  proc logBuildingStarted*(teamId: int, buildingKind: string, pos: string, step: int) =
-    logEvent(ecBuildStart, teamId, "Started building " & buildingKind & " at " & pos, step)
-
-  proc logBuildingCompleted*(teamId: int, buildingKind: string, pos: string, step: int) =
-    logEvent(ecBuildDone, teamId, "Completed " & buildingKind & " at " & pos, step)
-
-  proc logBuildingDestroyed*(teamId: int, buildingKind: string, pos: string, step: int) =
-    logEvent(ecBuildDestroy, teamId, buildingKind & " destroyed at " & pos, step)
-
-  proc logResourceGathered*(teamId: int, resourceKind: string, amount: int, step: int) =
-    logEvent(ecGather, teamId, "Gathered " & $amount & " " & resourceKind, step)
-
-  proc logResourceDeposited*(teamId: int, resourceKind: string, amount: int, step: int) =
-    logEvent(ecDeposit, teamId, "Deposited " & $amount & " " & resourceKind, step)
-
-  proc logCombatHit*(attackerTeam: int, targetTeam: int, attackerUnit: string,
-                     targetUnit: string, damage: int, step: int) =
-    let msg = attackerUnit & " hit " & teamColorName(targetTeam) & " " &
-              targetUnit & " for " & $damage & " damage"
-    logEvent(ecCombat, attackerTeam, msg, step)
-
-  proc logConversion*(monkTeam: int, targetTeam: int, targetUnit: string, step: int) =
-    let msg = "Monk converted " & teamColorName(targetTeam) & " " & targetUnit
-    logEvent(ecConversion, monkTeam, msg, step)
+  proc logConversion*(
+    monkTeam: int,
+    targetTeam: int,
+    targetUnit: string,
+    step: int
+  ) =
+    ## Log one monk-conversion event.
+    let message =
+      "Monk converted " & teamColorName(targetTeam) & " " & targetUnit
+    logEvent(ecConversion, monkTeam, message, step)
 
   proc logTechResearched*(teamId: int, techName: string, step: int) =
+    ## Log one technology research event.
     logEvent(ecResearch, teamId, "Researched " & techName, step)
 
-  proc logMarketTrade*(teamId: int, action: string, resource: string,
-                       amount: int, goldAmount: int, step: int) =
-    let msg = action & " " & $amount & " " & resource & " for " & $goldAmount & " gold"
-    logEvent(ecTrade, teamId, msg, step)
+  proc logMarketTrade*(
+    teamId: int,
+    action: string,
+    resource: string,
+    amount: int,
+    goldAmount: int,
+    step: int
+  ) =
+    ## Log one market trade event.
+    let message =
+      action & " " & $amount & " " & resource & " for " &
+      $goldAmount & " gold"
+    logEvent(ecTrade, teamId, message, step)

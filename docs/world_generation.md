@@ -13,6 +13,35 @@ World generation is split across:
 This doc focuses on the parts that changed during recent Codex sessions:
 central trading hub, river meander tuning, and guaranteed dual goblin hives.
 
+## Resolved Start State and Gameplay Handoff
+`newEnvironment()` builds the full map synchronously before gameplay starts.
+The generation order in `src/spawn.nim` is:
+
+1. `initState` resets grids, tint state, stockpiles, agent slots, and pooled effects.
+2. `initTerrainAndBiomes` lays down base biome terrain, swamp water, the river,
+   optional tree oases, elevation, ramps, cliffs, waterfalls, dungeon walls,
+   city walls, border walls, and biome tint colors.
+3. `initTradingHub` clears the center, paints the hub, extends roads/bridges,
+   and adds the neutral castle, towers, walls, and hub buildings.
+4. `initTeams` places each village start: altar, town center, houses, roads,
+   starter resource buildings/nodes, team walls/doors, and initial villagers.
+5. `generateVillagePonds` adds a local pond plus a shallow-water stream toward
+   the nearest river when pathing allows.
+6. `initNeutralStructures` adds goblin hives, huts, totems, goblin agents,
+   spawners, and initial tumors.
+7. `initResources` adds magma, wheat fields, trees, stone, gold, fish, relics,
+   bushes, cacti, and stalagmites.
+8. `initContestedZones` converts the central contest rings to fertile ground and
+   seeds concentrated gold, stone, wheat, bushes, cows, and relics.
+9. `initWildlife` adds ambient cows, bears, and wolf packs.
+10. `initFinalize` runs `makeConnected()`, starts replay bookkeeping, and builds
+    the initial spatial index.
+
+The important handoff detail is that this all finishes before the first
+rendered frame. The terrain/build pass and spawn/buildout phases are therefore
+already complete by the time `tribal-village play` enters the live step loop.
+That is the handoff point: worldgen is finished, then normal simulation begins.
+
 ## Central Trading Hub (neutral)
 Implemented in the `tradingHub` block inside `src/spawn.nim`.
 

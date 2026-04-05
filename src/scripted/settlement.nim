@@ -6,17 +6,6 @@ export ai_core
 
 const SettlerFoundingQuorum = 5  ## Minimum arrived settlers to found a town
 
-proc countVillagersAtAltar(env: Environment, teamId: int, altarPos: IVec2): int =
-  ## Count living villagers whose homeAltar matches the given altar position.
-  result = 0
-  for agent in env.agents:
-    if not isAgentAlive(env, agent):
-      continue
-    if getTeamId(agent) != teamId:
-      continue
-    if agent.homeAltar == altarPos:
-      inc result
-
 proc checkTownSplitCondition*(controller: Controller, env: Environment,
                                teamId: int, altarPos: IVec2): bool =
   ## Returns true if the town at altarPos has grown too large and should split.
@@ -30,7 +19,10 @@ proc checkTownSplitCondition*(controller: Controller, env: Environment,
     return false
 
   # Population check: count villagers at this altar
-  let popCount = countVillagersAtAltar(env, teamId, altarPos)
+  var popCount = 0
+  for agent in env.teamAliveAgents(teamId):
+    if agent.homeAltar == altarPos:
+      inc popCount
   if popCount < TownSplitPopulationThreshold:
     return false
 
@@ -51,11 +43,7 @@ proc selectSettlerGroup*(controller: Controller, env: Environment,
   type Candidate = tuple[agentId: int, dist: int32, isIdle: bool]
   var candidates: seq[Candidate] = @[]
 
-  for agent in env.agents:
-    if not isAgentAlive(env, agent):
-      continue
-    if getTeamId(agent) != teamId:
-      continue
+  for agent in env.teamAliveAgents(teamId):
     if agent.homeAltar != altarPos:
       continue
     if agent.isSettler:
@@ -145,20 +133,18 @@ proc findNewTownSite*(controller: Controller, env: Environment,
       if not openSpace:
         continue
 
-      # Must not overlap with existing altars (check distance to all team altars)
+      # Must not overlap with existing altars.
       var tooCloseToAltar = false
       for altar in env.thingsByKind[Altar]:
-        if altar.teamId == teamId and altar.pos != altarPos:
-          if chebyshevDist(pos, altar.pos) < TownSplitMinDistance:
-            tooCloseToAltar = true
-            break
-      # Also check enemy altars
-      if not tooCloseToAltar:
-        for altar in env.thingsByKind[Altar]:
-          if altar.teamId != teamId and altar.teamId >= 0:
-            if chebyshevDist(pos, altar.pos) < TownSplitMinDistance div 2:
-              tooCloseToAltar = true
-              break
+        if altar.teamId < 0 or (altar.teamId == teamId and altar.pos == altarPos):
+          continue
+        let minAltarDist = (if altar.teamId == teamId:
+                              TownSplitMinDistance
+                            else:
+                              TownSplitMinDistance div 2)
+        if chebyshevDist(pos, altar.pos) < minAltarDist:
+          tooCloseToAltar = true
+          break
       if tooCloseToAltar:
         continue
 
@@ -287,11 +273,7 @@ proc checkSettlerArrivals*(controller: Controller, env: Environment) =
     # Collect settlers by target site
     var settlersByTarget: seq[(IVec2, seq[int])] = @[]
 
-    for agent in env.agents:
-      if not isAgentAlive(env, agent):
-        continue
-      if getTeamId(agent) != teamId:
-        continue
+    for agent in env.teamAliveAgents(teamId):
       if not agent.isSettler or agent.settlerTarget.x < 0:
         continue
 
@@ -313,11 +295,7 @@ proc checkSettlerArrivals*(controller: Controller, env: Environment) =
 
       # Collect ALL settlers targeting this site (arrived or not) for reassignment
       var allSettlers: seq[int] = @[]
-      for agent in env.agents:
-        if not isAgentAlive(env, agent):
-          continue
-        if getTeamId(agent) != teamId:
-          continue
+      for agent in env.teamAliveAgents(teamId):
         if agent.isSettler and agent.settlerTarget == site:
           allSettlers.add(agent.agentId)
 

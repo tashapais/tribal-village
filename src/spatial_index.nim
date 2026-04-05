@@ -147,7 +147,8 @@ when defined(spatialStats):
     neighborCacheMisses*: int = 0
 
 when defined(spatialStats):
-  import std/[strutils, os]
+  import std/strutils
+  import envconfig
 
   type
     SpatialQueryKind* = enum
@@ -164,12 +165,7 @@ when defined(spatialStats):
     spatialReportInterval*: int = 100
     spatialStepCounter*: int = 0
 
-  block:
-    let envInterval = getEnv("TV_SPATIAL_STATS_INTERVAL", "100")
-    try:
-      spatialReportInterval = parseInt(envInterval)
-    except ValueError:
-      discard
+  spatialReportInterval = parseEnvInt("TV_SPATIAL_STATS_INTERVAL", spatialReportInterval)
 
   proc resetSpatialCounters*() =
     for k in SpatialQueryKind:
@@ -201,14 +197,6 @@ when defined(spatialStats):
       "findNearestOfKinds", "collectThings", "collectAgentsByClass"
     ]
 
-    proc padLeft(s: string, width: int): string =
-      if s.len >= width: return s
-      result = " ".repeat(width - s.len) & s
-
-    proc padRight(s: string, width: int): string =
-      if s.len >= width: return s
-      result = s & " ".repeat(width - s.len)
-
     proc fmtFloat1(v: float64): string =
       let i = int(v * 10 + 0.5)
       $int(i div 10) & "." & $int(i mod 10)
@@ -217,18 +205,18 @@ when defined(spatialStats):
     for k in SpatialQueryKind:
       let q = spatialTotalQueries[k]
       if q == 0:
-        echo padRight(names[k], 26) & " " & padLeft("0", 8) &
-          padLeft("-", 9) & padLeft("-", 11) & padLeft("-", 10) &
-          padLeft("-", 9) & padLeft("-", 7)
+        echo alignLeft(names[k], 26) & " " & align("0", 8) &
+          align("-", 9) & align("-", 11) & align("-", 10) &
+          align("-", 9) & align("-", 7)
         continue
       let avgCells = spatialTotalCellsScanned[k].float64 / q.float64
       let avgThings = spatialTotalThingsExamined[k].float64 / q.float64
       let h = spatialTotalHits[k]
       let m = spatialTotalMisses[k]
       let hitPct = if h + m > 0: (h.float64 / (h + m).float64) * 100.0 else: 0.0
-      echo padRight(names[k], 26) & " " & padLeft($q, 8) &
-        padLeft(fmtFloat1(avgCells), 9) & padLeft(fmtFloat1(avgThings), 11) &
-        padLeft($h, 10) & padLeft($m, 9) & padLeft(fmtFloat1(hitPct) & "%", 7)
+      echo alignLeft(names[k], 26) & " " & align($q, 8) &
+        align(fmtFloat1(avgCells), 9) & align(fmtFloat1(avgThings), 11) &
+        align($h, 10) & align($m, 9) & align(fmtFloat1(hitPct) & "%", 7)
       totalQ += q; totalC += spatialTotalCellsScanned[k]
       totalT += spatialTotalThingsExamined[k]; totalH += h; totalM += m
 
@@ -237,9 +225,9 @@ when defined(spatialStats):
       let avgC = totalC.float64 / totalQ.float64
       let avgT = totalT.float64 / totalQ.float64
       let hitPct = if totalH + totalM > 0: (totalH.float64 / (totalH + totalM).float64) * 100.0 else: 0.0
-      echo padRight("TOTAL", 26) & " " & padLeft($totalQ, 8) &
-        padLeft(fmtFloat1(avgC), 9) & padLeft(fmtFloat1(avgT), 11) &
-        padLeft($totalH, 10) & padLeft($totalM, 9) & padLeft(fmtFloat1(hitPct) & "%", 7)
+      echo alignLeft("TOTAL", 26) & " " & align($totalQ, 8) &
+        align(fmtFloat1(avgC), 9) & align(fmtFloat1(avgT), 11) &
+        align($totalH, 10) & align($totalM, 9) & align(fmtFloat1(hitPct) & "%", 7)
     echo ""
 
     # Report neighbor offset cache stats

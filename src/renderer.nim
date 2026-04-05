@@ -58,7 +58,7 @@ proc drawTerrain*() =
   for x in currentViewport.minX .. currentViewport.maxX:
     for y in currentViewport.minY .. currentViewport.maxY:
       let terrain = env.terrain[x][y]
-      if terrain == Water or terrain == Mountain: continue
+      if terrain in {Water, ShallowWater, Mountain}: continue
       let spriteKey = terrainSpriteKey(terrain)
       if spriteKey.len > 0 and spriteKey in bxy:
         bxy.drawImage(spriteKey, ivec2(x, y).vec2, angle = 0, scale = SpriteScale)

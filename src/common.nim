@@ -1,13 +1,10 @@
+## Shared UI state, viewport helpers, and day-night lighting utilities.
+
 import
-  boxy, windy, vmath
+  boxy, windy, vmath,
+  common_types, layout
 
-import pixie
-
-import common_types
-export common_types
-
-import layout
-export layout
+export common_types, layout
 
 type
   PanelType* = enum
@@ -43,7 +40,6 @@ type
     rect*: IRect
     areas*: seq[Area]
     panels*: seq[Panel]
-
 
   Settings* = object
     showFogOfWar* = false
@@ -120,15 +116,6 @@ proc logicalMousePos*(window: Window): Vec2 =
   ## Mouse position in logical coordinates (accounts for HiDPI scaling).
   window.mousePos.vec2 / window.contentScale
 
-# ─── Rendering Initialization ────────────────────────────────────────────────
-
-proc initRendering*(dataDir: string = "data") =
-  ## Initialize the boxy renderer for world and UI rendering.
-  ## Call this after window creation but before the main loop.
-  bxy = newBoxy()
-
-# ─── Transform Stack ─────────────────────────────────────────────────────────
-
 proc saveTransform*() =
   ## Push the current transform onto the stack.
   transformStack.add(transformMat)
@@ -153,27 +140,6 @@ proc translateTransform*(v: Vec2) =
 proc scaleTransform*(s: Vec2) =
   ## Scale the current transform.
   transformMat = transformMat * scale(s)
-
-proc rotateTransform*(angle: float32) =
-  ## Rotate the current transform.
-  transformMat = transformMat * rotate(angle)
-
-proc applyTransform*(pos: Vec2): Vec2 =
-  ## Apply current transform to a position.
-  let p = transformMat * vec3(pos.x, pos.y, 1.0)
-  vec2(p.x, p.y)
-
-# ─── Frame Lifecycle ─────────────────────────────────────────────────────────
-
-proc beginFrame*(size: IVec2) =
-  ## Begin a new frame for the boxy renderer.
-  bxy.beginFrame(size)
-
-proc endFrame*() =
-  ## End the current frame for the boxy renderer.
-  bxy.endFrame()
-
-# Viewport culling types and functions
 type
   ViewportBounds* = object
     ## Visible tile bounds for viewport culling.
@@ -197,13 +163,13 @@ proc updateViewport*(panel: Panel, panelRect: IRect, mapWidth, mapHeight: int, c
     currentViewport = ViewportBounds(valid: false)
     return
 
-  # Camera center in world coordinates
+  # Compute the camera center in world coordinates.
   let cx = (rectW / 2.0'f32 - panel.pos.x) / zoomScale
   let cy = (rectH / 2.0'f32 - panel.pos.y) / zoomScale
   let halfW = rectW / (2.0'f32 * zoomScale)
   let halfH = rectH / (2.0'f32 * zoomScale)
 
-  # Tile bounds with margin for sprite overhang
+  # Expand tile bounds slightly for sprite overhang.
   const margin = 2
   currentViewport = ViewportBounds(
     minX: max(0, int(cx - halfW) - margin),
@@ -221,10 +187,9 @@ proc isInViewport*(x, y: int): bool =
     y >= currentViewport.minY and y <= currentViewport.maxY
 
 proc isInViewport*(pos: IVec2): bool =
+  ## Checks whether a tile position is within the current viewport.
   isInViewport(pos.x, pos.y)
 {.pop.}
-
-# ─── Day/Night Cycle ─────────────────────────────────────────────────────────
 
 type
   AmbientLight* = object
@@ -240,10 +205,11 @@ proc updateDayNightCycle*() =
   dayTimeProgress = (dayTimeProgress + 1.0'f32 / DayNightCycleDuration.float32) mod 1.0'f32
 
 proc lerp(a, b, t: float32): float32 {.inline.} =
+  ## Linearly interpolates between two values.
   a + (b - a) * t
 
 proc smoothstep(t: float32): float32 {.inline.} =
-  ## Smooth interpolation for gradual transitions
+  ## Returns smooth interpolation for gradual transitions.
   let clamped = max(0.0'f32, min(1.0'f32, t))
   clamped * clamped * (3.0'f32 - 2.0'f32 * clamped)
 
@@ -251,31 +217,27 @@ proc getAmbientLight*(): AmbientLight =
   ## Calculate ambient light color based on current time of day.
   ## Returns warm tones during day, cool tones during night, with smooth transitions.
   if not dayNightEnabled or not settings.showDayNightCycle:
-    # Default to neutral white when disabled
+    # Default to neutral white when the cycle is disabled.
     return AmbientLight(r: 1.0, g: 1.0, b: 1.0, intensity: 1.0)
 
   let t = dayTimeProgress
 
-  # Define key colors for each phase
-  # Dawn: warm orange-yellow (sunrise)
+  # Define key colors for each phase.
   const dawnR = 1.1'f32
   const dawnG = 0.85'f32
   const dawnB = 0.7'f32
   const dawnI = 0.85'f32
 
-  # Day: bright warm white (midday)
   const dayR = 1.05'f32
   const dayG = 1.0'f32
   const dayB = 0.95'f32
   const dayI = 1.0'f32
 
-  # Dusk: warm orange-red (sunset)
   const duskR = 1.15'f32
   const duskG = 0.75'f32
   const duskB = 0.55'f32
   const duskI = 0.8'f32
 
-  # Night: cool blue-purple (moonlight)
   const nightR = 0.6'f32
   const nightG = 0.65'f32
   const nightB = 0.9'f32
@@ -284,8 +246,7 @@ proc getAmbientLight*(): AmbientLight =
   var r, g, b, intensity: float32
 
   if t < DawnStart:
-    # Night -> Dawn transition (from end of night to start of dawn)
-    # t goes from 0.0 to DawnStart (0.05)
+    # Blend from night into dawn at the start of the cycle.
     let phase = t / DawnStart
     let s = smoothstep(phase)
     r = lerp(nightR, dawnR, s)
@@ -294,7 +255,7 @@ proc getAmbientLight*(): AmbientLight =
     intensity = lerp(nightI, dawnI, s)
 
   elif t < DayStart:
-    # Dawn -> Day
+    # Blend from dawn into day.
     let phase = (t - DawnStart) / (DayStart - DawnStart)
     let s = smoothstep(phase)
     r = lerp(dawnR, dayR, s)
@@ -303,24 +264,24 @@ proc getAmbientLight*(): AmbientLight =
     intensity = lerp(dawnI, dayI, s)
 
   elif t < DuskStart:
-    # Full day (stable)
+    # Hold stable daytime lighting.
     r = dayR
     g = dayG
     b = dayB
     intensity = dayI
 
   elif t < NightStart:
-    # Day -> Dusk -> Night transition
+    # Blend through dusk before reaching night.
     let phase = (t - DuskStart) / (NightStart - DuskStart)
     if phase < 0.5:
-      # First half: day to dusk
+      # Blend from day into dusk.
       let halfS = smoothstep(phase * 2.0)
       r = lerp(dayR, duskR, halfS)
       g = lerp(dayG, duskG, halfS)
       b = lerp(dayB, duskB, halfS)
       intensity = lerp(dayI, duskI, halfS)
     else:
-      # Second half: dusk to night
+      # Blend from dusk into night.
       let halfS = smoothstep((phase - 0.5) * 2.0)
       r = lerp(duskR, nightR, halfS)
       g = lerp(duskG, nightG, halfS)
@@ -328,15 +289,14 @@ proc getAmbientLight*(): AmbientLight =
       intensity = lerp(duskI, nightI, halfS)
 
   elif t < NightToDawnStart:
-    # Full night (stable)
+    # Hold stable nighttime lighting.
     r = nightR
     g = nightG
     b = nightB
     intensity = nightI
 
   else:
-    # Night -> Dawn transition (wrapping back to start of cycle)
-    # t goes from NightToDawnStart (0.95) to 1.0, then wraps to 0.0
+    # Wrap from late night back into dawn.
     let phase = (t - NightToDawnStart) / (1.0'f32 - NightToDawnStart)
     let s = smoothstep(phase)
     r = lerp(nightR, dawnR, s)
@@ -355,5 +315,3 @@ proc applyAmbient*(baseR, baseG, baseB, baseI: float32, ambient: AmbientLight): 
     b: min(1.5'f32, baseB * ambient.b),
     i: baseI * ambient.intensity
   )
-
-# Note: Transform Stack procs are defined above in section "Transform Stack"

@@ -1,3 +1,4 @@
+## Parse a ThingKind from an item key name.
 proc parseThingKey(key: ItemKey, kind: var ThingKind): bool =
   if not isThingKey(key):
     return false
@@ -7,8 +8,8 @@ proc parseThingKey(key: ItemKey, kind: var ThingKind): bool =
       return true
   false
 
+## Reset pooled thing state before reuse.
 proc resetThing(thing: Thing, kind: ThingKind) =
-  ## Reset a pooled Thing to default state for reuse.
   thing.kind = kind
   thing.pos = ivec2(0, 0)
   thing.id = 0
@@ -43,7 +44,7 @@ proc resetThing(thing: Thing, kind: ThingKind) =
   thing.hasClaimedTerritory = false
   thing.turnsAlive = 0
   thing.teamId = 0
-  thing.teamMask = NoTeamMask  # Will be updated when teamId is properly set
+  thing.teamMask = NoTeamMask
   thing.lanternHealthy = false
   thing.garrisonedUnits = @[]
   thing.townBellActive = false
@@ -54,8 +55,8 @@ proc resetThing(thing: Thing, kind: ThingKind) =
   thing.wonderVictoryCountdown = 0
   thing.lastTintPos = ivec2(0, 0)
 
+## Acquire a Thing from the pool or allocate a fresh one.
 proc acquireThing*(env: Environment, kind: ThingKind): Thing =
-  ## Get a Thing from the pool or allocate a new one.
   if kind in PoolableKinds and env.thingPool.free[kind].len > 0:
     result = env.thingPool.free[kind].pop()
     env.thingPool.stats.poolSize -= 1
@@ -64,14 +65,15 @@ proc acquireThing*(env: Environment, kind: ThingKind): Thing =
     result = Thing(kind: kind)
   env.thingPool.stats.acquired += 1
 
+## Return a Thing to the reuse pool.
 proc releaseThing(env: Environment, thing: Thing) =
-  ## Return a Thing to the pool for reuse.
   env.thingPool.free[thing.kind].add(thing)
   env.thingPool.stats.released += 1
   env.thingPool.stats.poolSize += 1
 
+## Remove a Thing from all environment indices and caches.
 proc removeThing(env: Environment, thing: Thing) =
-  # Remove from spatial index before clearing position
+  # Remove the thing from the spatial index before clearing its tile.
   removeFromSpatialIndex(env, thing)
   if isValidPos(thing.pos):
     if thingBlocksMovement(thing.kind):
@@ -80,7 +82,9 @@ proc removeThing(env: Environment, thing: Thing) =
       env.backgroundGrid[thing.pos.x][thing.pos.y] = nil
     env.updateObservations(ThingAgentLayer, thing.pos, 0)
   let thingIdx = thing.thingsIndex
-  if thingIdx >= 0 and thingIdx < env.things.len and env.things[thingIdx] == thing:
+  if thingIdx >= 0 and
+    thingIdx < env.things.len and
+    env.things[thingIdx] == thing:
     let lastIdx = env.things.len - 1
     if thingIdx != lastIdx:
       let last = env.things[lastIdx]
@@ -88,8 +92,11 @@ proc removeThing(env: Environment, thing: Thing) =
       last.thingsIndex = thingIdx
     env.things.setLen(lastIdx)
   let kindIdx = thing.kindListIndex
-  if kindIdx >= 0 and kindIdx < env.thingsByKind[thing.kind].len and
-      env.thingsByKind[thing.kind][kindIdx] == thing:
+  let hasKindEntry =
+    kindIdx >= 0 and
+    kindIdx < env.thingsByKind[thing.kind].len and
+    env.thingsByKind[thing.kind][kindIdx] == thing
+  if hasKindEntry:
     let lastKindIdx = env.thingsByKind[thing.kind].len - 1
     if kindIdx != lastKindIdx:
       let lastKindThing = env.thingsByKind[thing.kind][lastKindIdx]
@@ -98,17 +105,18 @@ proc removeThing(env: Environment, thing: Thing) =
     env.thingsByKind[thing.kind].setLen(lastKindIdx)
   if thing.kind == Altar and env.altarColors.hasKey(thing.pos):
     env.altarColors.del(thing.pos)
-  # Return poolable things to pool for reuse
+  # Return poolable things to the reuse pool.
   if thing.kind in PoolableKinds:
     releaseThing(env, thing)
 
+## Add a Thing to the environment and initialize its derived state.
 proc add*(env: Environment, thing: Thing) =
   let isBlocking = thingBlocksMovement(thing.kind)
   if isValidPos(thing.pos) and not isBlocking:
     let existing = env.backgroundGrid[thing.pos.x][thing.pos.y]
     if not isNil(existing):
       if existing.kind in CliffKinds:
-        # Cliffs always own their tile; don't place other background things on top.
+        # Cliffs always own their tile.
         return
       if thing.kind in CliffKinds:
         # Cliffs take precedence over other background overlays.
@@ -129,9 +137,7 @@ proc add*(env: Environment, thing: Thing) =
       thing.maxHp = defaultMaxHp
     if thing.hp <= 0:
       thing.hp = thing.maxHp
-  # Mark buildings as constructed:
-  # - Full HP buildings (map-generated or completed construction)
-  # - Zero-maxHp buildings (instant placement, no construction needed: House, Mill, etc.)
+  # Treat completed and instant-placement buildings as constructed.
   if thing.maxHp <= 0 or thing.hp >= thing.maxHp:
     thing.constructed = true
 
@@ -142,7 +148,7 @@ proc add*(env: Environment, thing: Thing) =
     of TownCenter: thing.attackDamage = TownCenterAttackDamage
     else: discard
 
-  # Initialize rally point to "none" for buildings
+  # Initialize the rally point sentinel for buildings.
   if isBuildingKind(thing.kind):
     thing.rallyPoint = ivec2(-1, -1)
 
@@ -165,22 +171,24 @@ proc add*(env: Environment, thing: Thing) =
     thing.rallyTarget = ivec2(-1, -1)
     if thing.teamIdOverride == 0:
       thing.teamIdOverride = -1
-    updateTeamMask(thing)  # Initialize cached teamMask from agentId
-    if thing.embarkedUnitClass == UnitVillager and thing.unitClass != UnitVillager:
-      thing.embarkedUnitClass = thing.unitClass
+    # Initialize the cached team mask from the agent identity.
+    updateTeamMask(thing)
+    if thing.embarkedUnitClass == UnitVillager and
+      thing.unitClass != UnitVillager:
+        thing.embarkedUnitClass = thing.unitClass
     env.agents.add(thing)
     env.stats.add(Stats())
-    # Add to tank/monk lists for optimized aura processing
+    # Track special aura units in dedicated lists.
     if thing.unitClass in TankAuraUnits:
       env.tankUnits.add(thing)
     elif thing.unitClass == UnitMonk:
       env.monkUnits.add(thing)
-    # Add villagers to per-team cache for O(team_size) town bell garrison
+    # Cache villagers per team for town bell garrisoning.
     if thing.unitClass == UnitVillager:
       let teamId = getTeamId(thing)
       if teamId >= 0 and teamId < MapRoomObjectsTeams:
         env.teamVillagers[teamId].add(thing)
-  # Update cached teamMask for non-agent Things (agents handled above)
+  # Update the cached team mask for non-agent things.
   if thing.kind != Agent:
     updateTeamMask(thing)
   if isValidPos(thing.pos):
@@ -189,5 +197,5 @@ proc add*(env: Environment, thing: Thing) =
     else:
       env.backgroundGrid[thing.pos.x][thing.pos.y] = thing
     env.updateObservations(ThingAgentLayer, thing.pos, 0)
-    # Add to spatial index
+    # Add the thing to the spatial index.
     addToSpatialIndex(env, thing)

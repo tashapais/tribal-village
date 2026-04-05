@@ -764,7 +764,7 @@ proc generateBranchPath(
 # River generation: water tile placement
 # ---------------------------------------------------------------------------
 
-proc placeWaterPath(
+proc placeWaterPath*(
     terrain: var TerrainGrid,
     path: seq[IVec2],
     radius: int,
@@ -788,7 +788,7 @@ proc placeWaterPath(
           continue
         if dist2 <= deepRadius2:
           terrain[waterPos.x][waterPos.y] = Water
-        else:
+        elif terrain[waterPos.x][waterPos.y] != Water:
           terrain[waterPos.x][waterPos.y] = ShallowWater
 
 # ---------------------------------------------------------------------------

@@ -98,12 +98,12 @@ suite "Patrol External API":
 
     check isAgentPatrolActive(0) == true
 
-  test "setAgentPatrolXY enables patrol mode":
+  test "setAgentPatrol enables patrol mode from coordinates":
     let env = makeEmptyEnv()
     let agent = addAgentAt(env, 0, ivec2(10, 10), unitClass = UnitManAtArms, stance = StanceDefensive)
 
     initTestGlobalController(42)
-    setAgentPatrolXY(0, 5, 10, 15, 10)
+    setAgentPatrol(0, ivec2(5, 10), ivec2(15, 10))
 
     check isAgentPatrolActive(0) == true
 

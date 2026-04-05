@@ -9,6 +9,18 @@ const
   LongRunSteps = LongSimSteps
   ShortRunSteps = ShortSimSteps
 
+proc totalAliveHp(env: Environment): int =
+  for agent in env.agents:
+    if not agent.isNil and agent.hp > 0:
+      result += agent.hp
+
+proc aliveAgentCounts(env: Environment): array[MapRoomObjectsTeams, int] =
+  for agent in env.agents:
+    if not agent.isNil and agent.hp > 0:
+      let teamId = getTeamId(agent)
+      if teamId >= 0 and teamId < MapRoomObjectsTeams:
+        inc result[teamId]
+
 suite "Behavioral AI - Gatherer Role":
   test "gatherer AI actually gathers resources over 300 steps":
     ## Run 300 steps and verify gatherer AI increases resource count.
@@ -57,14 +69,14 @@ suite "Behavioral AI - Fighter Role":
   test "fighter AI engages enemies when in range":
     ## Run a full game and verify fighters deal damage to enemy teams.
     let env = setupGameWithAI(TestSeed)
-    let initialTotalHp = getTotalHp(env)
+    let initialTotalHp = totalAliveHp(env)
     echo fmt"  Initial total HP across all agents: {initialTotalHp}"
 
     # Run game - fighters should engage and deal damage
     runGameSteps(env, 200)
 
     # Count final HP and dead agents
-    let finalTotalHp = getTotalHp(env)
+    let finalTotalHp = totalAliveHp(env)
     var deadAgents = 0
     for i, agent in env.agents:
       if not agent.isNil and agent.hp <= 0 and env.terminated[i] == 1.0:
@@ -78,12 +90,14 @@ suite "Behavioral AI - Fighter Role":
   test "fighter AI pursues enemies in multi-team game":
     ## Verify fighters engage in combat over time.
     let env = setupGameWithAI(256)
-    echo fmt"  Initial agent counts: {countAgentsPerTeam(env)}"
+    let initialAgentCounts = aliveAgentCounts(env)
+    echo fmt"  Initial agent counts: {initialAgentCounts}"
 
     # Run game
     runGameSteps(env, 300)
 
-    echo fmt"  Final agent counts: {countAgentsPerTeam(env)}"
+    let finalAgentCounts = aliveAgentCounts(env)
+    echo fmt"  Final agent counts: {finalAgentCounts}"
 
     # Check for combat indicators: damaged agents or dead agents
     var damagedAgents = 0
@@ -131,7 +145,9 @@ suite "Behavioral AI - Builder Role":
 
     runGameSteps(env, 200)
 
-    let buildingsPerTeam = countBuildingsPerTeam(env)
+    var buildingsPerTeam: array[MapRoomObjectsTeams, int]
+    for teamId in 0 ..< MapRoomObjectsTeams:
+      buildingsPerTeam[teamId] = countBuildings(env, teamId)
     echo fmt"  Buildings per team: {buildingsPerTeam}"
 
     # At least one team should have built something
@@ -153,7 +169,7 @@ suite "Behavioral AI - Role Assignment":
 
     for teamId in 0 ..< MapRoomObjectsTeams:
       let roles = countRolesByTeam(teamId)
-      printRoleSummary(teamId, "After init")
+      echo fmt"  [After init] Team {teamId}: gatherers={roles.gatherers} builders={roles.builders} fighters={roles.fighters}"
 
       # Verify not all agents have the same role
       let totalAgents = roles.gatherers + roles.builders + roles.fighters
@@ -173,7 +189,7 @@ suite "Behavioral AI - Role Assignment":
 
     for teamId in 0 ..< MapRoomObjectsTeams:
       let roles = countRolesByTeam(teamId)
-      printRoleSummary(teamId, "Role distribution")
+      echo fmt"  [Role distribution] Team {teamId}: gatherers={roles.gatherers} builders={roles.builders} fighters={roles.fighters}"
 
       # Expected: 2 gatherers (slots 0,1), 2 builders (slots 2,3), 2 fighters (slots 4,5)
       # But actual count depends on how many agents are alive and initialized

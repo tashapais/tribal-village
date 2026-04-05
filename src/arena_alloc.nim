@@ -1,4 +1,4 @@
-## Arena allocator for per-step temporary allocations
+## Arena allocator for per-step temporary allocations.
 ##
 ## Provides bump allocation that resets each step, avoiding repeated heap
 ## allocations for temporary sequences. Uses pre-allocated seq buffers that
@@ -6,10 +6,12 @@
 
 import types
 
-var arenaStats*: ArenaStats
+const
+  ArenaIntsCap = 256
+  ArenaStringsCap = 64
 
 proc initArena*(): Arena =
-  ## Initialize arena with pre-allocated capacity
+  ## Initialize the arena with pre-allocated buffers.
   result = Arena(
     things1: newSeqOfCap[Thing](ArenaDefaultCap),
     things2: newSeqOfCap[Thing](ArenaDefaultCap div 2),
@@ -17,10 +19,10 @@ proc initArena*(): Arena =
     things4: newSeqOfCap[Thing](ArenaDefaultCap div 4),
     positions1: newSeqOfCap[IVec2](ArenaDefaultCap),
     positions2: newSeqOfCap[IVec2](ArenaDefaultCap div 2),
-    ints1: newSeqOfCap[int](256),
-    ints2: newSeqOfCap[int](256),
+    ints1: newSeqOfCap[int](ArenaIntsCap),
+    ints2: newSeqOfCap[int](ArenaIntsCap),
     itemCounts: newSeqOfCap[tuple[key: ItemKey, count: int]](MapObjectAgentMaxInventory),
-    strings: newSeqOfCap[string](64),
+    strings: newSeqOfCap[string](ArenaStringsCap),
   )
 
 proc reset*(arena: var Arena) {.inline.} =
@@ -36,42 +38,3 @@ proc reset*(arena: var Arena) {.inline.} =
   arena.ints2.setLen(0)
   arena.itemCounts.setLen(0)
   arena.strings.setLen(0)
-  inc arenaStats.resets
-
-proc updateStats*(arena: Arena) {.inline.} =
-  ## Update peak usage statistics
-  if arena.things1.len > arenaStats.peakThings:
-    arenaStats.peakThings = arena.things1.len
-  if arena.positions1.len > arenaStats.peakPositions:
-    arenaStats.peakPositions = arena.positions1.len
-  if arena.ints1.len > arenaStats.peakInts:
-    arenaStats.peakInts = arena.ints1.len
-
-# Convenience templates for borrowing arena buffers
-# These provide a scoped way to use arena memory
-
-template withArenaThings*(arena: var Arena, buf: untyped, body: untyped) =
-  ## Borrow things1 buffer, execute body, then clear
-  buf = addr arena.things1
-  body
-  arena.things1.setLen(0)
-
-template withArenaPositions*(arena: var Arena, buf: untyped, body: untyped) =
-  ## Borrow positions1 buffer, execute body, then clear
-  buf = addr arena.positions1
-  body
-  arena.positions1.setLen(0)
-
-# Helper procs for common arena operations
-
-proc borrowThings*(arena: var Arena): ptr seq[Thing] {.inline.} =
-  ## Get pointer to things1 buffer (caller must clear when done)
-  addr arena.things1
-
-proc borrowPositions*(arena: var Arena): ptr seq[IVec2] {.inline.} =
-  ## Get pointer to positions1 buffer (caller must clear when done)
-  addr arena.positions1
-
-proc borrowInts*(arena: var Arena): ptr seq[int] {.inline.} =
-  ## Get pointer to ints1 buffer (caller must clear when done)
-  addr arena.ints1

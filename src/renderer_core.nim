@@ -475,15 +475,6 @@ proc ensureHeartCountLabel*(count: int): string =
   let cached = ensureLabel("heart_count", "x " & $count, overlayLabelStyle)
   result = cached.imageKey
 
-proc ensureControlGroupBadge*(groupNum: int): (string, IVec2) =
-  ## Cache a control group badge label (1-9) for display above units.
-  if groupNum < 0 or groupNum >= 10: return ("", ivec2(0, 0))
-  let displayNum = if groupNum == 9: 0 else: groupNum + 1
-  let style = labelStyle(ControlGroupBadgeFontPath, ControlGroupBadgeFontSize,
-                          ControlGroupBadgePadding, 0.7)
-  let cached = ensureLabel("control_group", $displayNum, style)
-  result = (cached.imageKey, cached.size)
-
 # ─── Cliff Draw Order ────────────────────────────────────────────────────────
 
 const CliffDrawOrder* = [
@@ -587,6 +578,15 @@ proc resourceUiIconScale*(res: StockpileResource): float32 {.inline.} =
   of ResourceWood: 0.94'f32
   of ResourceWater, ResourceNone: 1.0'f32
 
+proc stockpileResourceIcon*(res: StockpileResource): string {.inline.} =
+  case res
+  of ResourceFood: itemSpriteKey(ItemWheat)
+  of ResourceWood: itemSpriteKey(ItemWood)
+  of ResourceStone: itemSpriteKey(ItemStone)
+  of ResourceGold: itemSpriteKey(ItemGold)
+  of ResourceWater: itemSpriteKey(ItemWater)
+  of ResourceNone: ""
+
 proc drawUiImageScaled*(key: string, topLeft: Vec2, size: Vec2,
                         tint: Color = TintWhite) =
   ## Draw a UI image in pixel space using top-left anchoring.
@@ -635,9 +635,12 @@ proc drawUnitDebugOverlay*() =
   if not currentViewport.valid:
     return
 
-  let debugStyle = labelStyleColored(
-    HeartCountFontPath, DebugLabelFontSize, DebugLabelPadding,
-    TintWhite  # base white — we tint per-category via drawImage
+  let debugStyle = labelStyle(
+    HeartCountFontPath,
+    DebugLabelFontSize,
+    DebugLabelPadding,
+    0.0,
+    TintWhite  # base white; we tint per-category via drawImage.
   )
 
   for agent in env.agents:

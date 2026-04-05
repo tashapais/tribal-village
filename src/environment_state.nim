@@ -1,47 +1,49 @@
-## environment_state.nim - Core state management for Environment
-##
-## This module contains error handling and FFI state management types and procedures.
-## These are foundational utilities used throughout the environment module.
-
-
-# ============================================================================
-# Error types and FFI error state management
-# ============================================================================
-
 type
   TribalErrorKind* = enum
-    ## Error categories for better diagnostics
+    ## Enumerate environment error categories for diagnostics.
     ErrNone = 0
-    ErrMapFull = 1          ## No empty positions available for placement
-    ErrInvalidPosition = 2  ## Position is out of bounds or invalid
-    ErrResourceNotFound = 3 ## Required resource not found
-    ErrInvalidState = 4     ## Invalid game state encountered
-    ErrFFIError = 5         ## Error in FFI layer
+    ErrMapFull = 1          ## No empty positions are available for placement.
+    ErrInvalidPosition = 2  ## A position is out of bounds or invalid.
+    ErrResourceNotFound = 3 ## A required resource was not found.
+    ErrInvalidState = 4     ## The game reached an invalid state.
+    ErrFFIError = 5         ## The FFI layer reported an error.
 
   TribalError* = object of CatchableError
-    ## Base exception type for tribal village errors
+    ## Represent a tribal village error with structured details.
     kind*: TribalErrorKind
     details*: string
 
   FFIErrorState* = object
-    ## Thread-local error state for FFI layer
+    ## Store thread-local error state for the FFI layer.
     hasError*: bool
     errorCode*: TribalErrorKind
     errorMessage*: string
 
-var lastFFIError*: FFIErrorState
+var
+  lastFFIError*: FFIErrorState
+
+proc initFFIErrorState(): FFIErrorState =
+  ## Return the default cleared FFI error state.
+  FFIErrorState(
+    hasError: false,
+    errorCode: ErrNone,
+    errorMessage: ""
+  )
 
 proc clearFFIError*() =
-  ## Clear the last FFI error state
-  lastFFIError = FFIErrorState(hasError: false, errorCode: ErrNone, errorMessage: "")
+  ## Clear the last FFI error state.
+  lastFFIError = initFFIErrorState()
 
 proc newTribalError*(kind: TribalErrorKind, message: string): ref TribalError =
-  ## Create a new tribal error with the given kind and message
+  ## Create a TribalError with the given kind and message.
   result = new(TribalError)
   result.kind = kind
   result.details = message
   result.msg = $kind & ": " & message
 
 proc raiseMapFullError*() {.noreturn.} =
-  ## Raise an error when the map is too full to place entities
-  raise newTribalError(ErrMapFull, "Failed to find an empty position, map too full!")
+  ## Raise a TribalError when the map has no free placement tile.
+  raise newTribalError(
+    ErrMapFull,
+    "Failed to find an empty position, map too full."
+  )

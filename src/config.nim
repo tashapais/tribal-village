@@ -14,7 +14,9 @@
 ##   let cfg2 = configFromJson(json)           # Deserialize from JSON
 ##   assert cfg.validate().len == 0            # Check for validation errors
 
-import std/[os, strutils, json, strformat, algorithm, tables, sets]
+import std/[algorithm, json, strformat, strutils, tables]
+
+import envconfig
 
 type
   ConfigFieldKind* = enum
@@ -463,109 +465,68 @@ const
     )
   ]
 
-# =============================================================================
-# Environment Variable Parsing (from envconfig.nim pattern)
-# =============================================================================
-
-proc parseEnvIntInternal(envVar: string, fallback: int): int =
-  let raw = getEnv(envVar, "")
-  if raw.len == 0:
-    return fallback
-  try:
-    result = parseInt(raw)
-  except ValueError:
-    result = fallback
-
-proc parseEnvBoolInternal(envVar: string, fallback: bool): bool =
-  let raw = getEnv(envVar, "").toLowerAscii
-  if raw in ["1", "true", "yes", "on"]:
-    return true
-  elif raw in ["0", "false", "no", "off", ""]:
-    return false
-  else:
-    return fallback
-
-proc parseEnvFloatInternal(envVar: string, fallback: float): float =
-  let raw = getEnv(envVar, "")
-  if raw.len == 0:
-    return fallback
-  try:
-    result = parseFloat(raw)
-  except ValueError:
-    result = fallback
-
-proc parseEnvStringInternal(envVar: string, fallback: string): string =
-  let raw = getEnv(envVar, "")
-  if raw.len == 0:
-    return fallback
-  return raw
-
-# =============================================================================
-# Config Loading
-# =============================================================================
-
 proc loadConfig*(): Config =
   ## Load configuration from environment variables.
   ## Returns a Config object with all values populated from env vars or defaults.
   result = Config(
     # Performance & Timing
-    stepTimingTarget: parseEnvIntInternal("TV_STEP_TIMING", -1),
-    stepTimingWindow: parseEnvIntInternal("TV_STEP_TIMING_WINDOW", 0),
-    timingInterval: parseEnvIntInternal("TV_TIMING_INTERVAL", 100),
+    stepTimingTarget: parseEnvInt("TV_STEP_TIMING", -1),
+    stepTimingWindow: parseEnvInt("TV_STEP_TIMING_WINDOW", 0),
+    timingInterval: parseEnvInt("TV_TIMING_INTERVAL", 100),
 
     # Rendering & Visualization
-    logRenderEnabled: parseEnvBoolInternal("TV_LOG_RENDER", false),
-    logRenderWindow: max(100, parseEnvIntInternal("TV_LOG_RENDER_WINDOW", 100)),
-    logRenderEvery: max(1, parseEnvIntInternal("TV_LOG_RENDER_EVERY", 1)),
+    logRenderEnabled: parseEnvBool("TV_LOG_RENDER", false),
+    logRenderWindow: max(100, parseEnvInt("TV_LOG_RENDER_WINDOW", 100)),
+    logRenderEvery: max(1, parseEnvInt("TV_LOG_RENDER_EVERY", 1)),
 
     # Console Visualization
-    consoleVizEnabled: parseEnvBoolInternal("TV_CONSOLE_VIZ", false),
-    consoleVizInterval: max(1, parseEnvIntInternal("TV_VIZ_INTERVAL", 10)),
+    consoleVizEnabled: parseEnvBool("TV_CONSOLE_VIZ", false),
+    consoleVizInterval: max(1, parseEnvInt("TV_VIZ_INTERVAL", 10)),
 
     # Audit Systems
-    actionAuditInterval: max(1, parseEnvIntInternal("TV_ACTION_AUDIT_INTERVAL", 100)),
-    actionFreqInterval: max(1, parseEnvIntInternal("TV_ACTION_FREQ_INTERVAL", 100)),
-    combatReportInterval: max(1, parseEnvIntInternal("TV_COMBAT_REPORT_INTERVAL", 100)),
-    combatVerbose: parseEnvBoolInternal("TV_COMBAT_VERBOSE", false),
-    tumorReportInterval: max(1, parseEnvIntInternal("TV_TUMOR_REPORT_INTERVAL", 100)),
-    econReportInterval: max(1, parseEnvIntInternal("TV_ECON_REPORT_INTERVAL", 100)),
-    techReportInterval: max(1, parseEnvIntInternal("TV_TECH_REPORT_INTERVAL", 100)),
-    settlerReportInterval: max(1, parseEnvIntInternal("TV_SETTLER_REPORT_INTERVAL", 100)),
+    actionAuditInterval: max(1, parseEnvInt("TV_ACTION_AUDIT_INTERVAL", 100)),
+    actionFreqInterval: max(1, parseEnvInt("TV_ACTION_FREQ_INTERVAL", 100)),
+    combatReportInterval: max(1, parseEnvInt("TV_COMBAT_REPORT_INTERVAL", 100)),
+    combatVerbose: parseEnvBool("TV_COMBAT_VERBOSE", false),
+    tumorReportInterval: max(1, parseEnvInt("TV_TUMOR_REPORT_INTERVAL", 100)),
+    econReportInterval: max(1, parseEnvInt("TV_ECON_REPORT_INTERVAL", 100)),
+    techReportInterval: max(1, parseEnvInt("TV_TECH_REPORT_INTERVAL", 100)),
+    settlerReportInterval: max(1, parseEnvInt("TV_SETTLER_REPORT_INTERVAL", 100)),
 
     # Flame Graph Profiling
-    flameInterval: max(1, parseEnvIntInternal("TV_FLAME_INTERVAL", 1000)),
-    flameSample: max(1, parseEnvIntInternal("TV_FLAME_SAMPLE", 1)),
+    flameInterval: max(1, parseEnvInt("TV_FLAME_INTERVAL", 1000)),
+    flameSample: max(1, parseEnvInt("TV_FLAME_SAMPLE", 1)),
 
     # Performance Regression Detection
-    perfWindow: max(10, parseEnvIntInternal("TV_PERF_WINDOW", 100)),
-    perfInterval: max(1, parseEnvIntInternal("TV_PERF_INTERVAL", 100)),
-    perfThreshold: parseEnvFloatInternal("TV_PERF_THRESHOLD", 10.0),
-    perfFailOnRegression: parseEnvBoolInternal("TV_PERF_FAIL_ON_REGRESSION", false),
+    perfWindow: max(10, parseEnvInt("TV_PERF_WINDOW", 100)),
+    perfInterval: max(1, parseEnvInt("TV_PERF_INTERVAL", 100)),
+    perfThreshold: parseEnvFloat("TV_PERF_THRESHOLD", 10.0),
+    perfFailOnRegression: parseEnvBool("TV_PERF_FAIL_ON_REGRESSION", false),
 
     # Heatmap Generation
-    heatmapInterval: max(1, parseEnvIntInternal("TV_HEATMAP_INTERVAL", 50)),
+    heatmapInterval: max(1, parseEnvInt("TV_HEATMAP_INTERVAL", 50)),
 
     # State Dumping
-    stateDumpEnabled: parseEnvBoolInternal("TV_STATE_DUMP", false),
-    stateDumpInterval: max(1, parseEnvIntInternal("TV_STATE_DUMP_INTERVAL", 100)),
+    stateDumpEnabled: parseEnvBool("TV_STATE_DUMP", false),
+    stateDumpInterval: max(1, parseEnvInt("TV_STATE_DUMP_INTERVAL", 100)),
 
     # Replay System
-    replayEnabled: parseEnvBoolInternal("TV_REPLAY", false),
-    replayPath: parseEnvStringInternal("TV_REPLAY_PATH", "data/replay.json"),
+    replayEnabled: parseEnvBool("TV_REPLAY", false),
+    replayPath: parseEnvString("TV_REPLAY_PATH", "data/replay.json"),
 
     # Balance Scorecard
-    scorecardEnabled: parseEnvBoolInternal("TV_SCORECARD", false),
-    scorecardPath: parseEnvStringInternal("TV_SCORECARD_PATH", "data/scorecard.json"),
+    scorecardEnabled: parseEnvBool("TV_SCORECARD", false),
+    scorecardPath: parseEnvString("TV_SCORECARD_PATH", "data/scorecard.json"),
 
     # Event Logging
-    eventLogEnabled: parseEnvBoolInternal("TV_EVENT_LOG", false),
-    eventLogInterval: max(1, parseEnvIntInternal("TV_EVENT_LOG_INTERVAL", 100)),
+    eventLogEnabled: parseEnvBool("TV_EVENT_LOG", false),
+    eventLogInterval: max(1, parseEnvInt("TV_EVENT_LOG_INTERVAL", 100)),
 
     # Debug Flags
-    debugPathfinding: parseEnvBoolInternal("TV_DEBUG_PATHFINDING", false),
-    debugCombat: parseEnvBoolInternal("TV_DEBUG_COMBAT", false),
-    debugEconomy: parseEnvBoolInternal("TV_DEBUG_ECONOMY", false),
-    debugAI: parseEnvBoolInternal("TV_DEBUG_AI", false)
+    debugPathfinding: parseEnvBool("TV_DEBUG_PATHFINDING", false),
+    debugCombat: parseEnvBool("TV_DEBUG_COMBAT", false),
+    debugEconomy: parseEnvBool("TV_DEBUG_ECONOMY", false),
+    debugAI: parseEnvBool("TV_DEBUG_AI", false)
   )
 
 proc defaultConfig*(): Config =
@@ -1122,23 +1083,3 @@ proc diff*(a, b: Config): seq[(string, string, string)] =
     result.add ("debugEconomy", $a.debugEconomy, $b.debugEconomy)
   if a.debugAI != b.debugAI:
     result.add ("debugAI", $a.debugAI, $b.debugAI)
-
-when isMainModule:
-  # Self-test and demo
-  echo "Loading configuration from environment..."
-  let cfg = loadConfig()
-
-  echo "\n=== Validation ==="
-  let errors = cfg.validate()
-  if errors.len == 0:
-    echo "Configuration is valid!"
-  else:
-    echo "Validation errors:"
-    for err in errors:
-      echo fmt"  {err.field}: {err.message}"
-
-  echo "\n=== JSON Serialization ==="
-  echo cfg.toJsonString()
-
-  echo "\n=== Help Documentation ==="
-  echo cfg.help()

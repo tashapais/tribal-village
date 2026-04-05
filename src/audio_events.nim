@@ -1,54 +1,95 @@
-## audio_events.nim - Game event to audio mapping
+## Map game events to audio playback.
 ##
-## Bridges game events to audio playback. Call these procs from game logic
-## where events occur (combat, deaths, building, etc.).
-##
-## This module provides high-level audio triggers that internally select
-## appropriate sounds based on unit type, action, and context.
+## Call these helpers from game logic where combat, deaths, building, and
+## UI events occur.
+
+import
+  vmath,
+  types
+
+type
+  VoiceCategory = enum
+    VoiceSoldier
+    VoiceVillager
+    VoiceMonk
+    VoiceCavalry
+    VoiceArcher
+    VoiceSiege
+    VoiceNaval
+
+proc voiceCategory(unitClass: AgentUnitClass): VoiceCategory =
+  ## Map a unit class to its voice category.
+  case unitClass
+  of UnitVillager:
+    VoiceVillager
+  of UnitMonk:
+    VoiceMonk
+  of UnitKnight, UnitCataphract, UnitScout, UnitLightCavalry, UnitHussar,
+      UnitMameluke:
+    VoiceCavalry
+  of UnitArcher, UnitCrossbowman, UnitArbalester, UnitLongbowman,
+      UnitJanissary:
+    VoiceArcher
+  of UnitBatteringRam, UnitMangonel, UnitTrebuchet, UnitScorpion:
+    VoiceSiege
+  of UnitBoat, UnitTradeCog, UnitGalley, UnitFireShip:
+    VoiceNaval
+  else:
+    VoiceSoldier
+
+proc getUnitVoiceCategory*(unitClass: AgentUnitClass): string =
+  ## Return the voice category name for a unit class.
+  case voiceCategory(unitClass)
+  of VoiceVillager:
+    "villager"
+  of VoiceMonk:
+    "monk"
+  of VoiceCavalry:
+    "cavalry"
+  of VoiceArcher:
+    "archer"
+  of VoiceSiege:
+    "siege"
+  of VoiceNaval:
+    "naval"
+  of VoiceSoldier:
+    "soldier"
+
+proc isRangedUnit*(unitClass: AgentUnitClass): bool =
+  ## Return true when a unit class uses ranged attacks.
+  unitClass in {
+    UnitArcher,
+    UnitCrossbowman,
+    UnitArbalester,
+    UnitLongbowman,
+    UnitJanissary,
+    UnitMangonel,
+    UnitTrebuchet,
+    UnitScorpion,
+    UnitGalley
+  }
+
+proc isCavalryUnit*(unitClass: AgentUnitClass): bool =
+  ## Return true when a unit class is cavalry.
+  unitClass in {
+    UnitKnight,
+    UnitCataphract,
+    UnitScout,
+    UnitLightCavalry,
+    UnitHussar,
+    UnitMameluke
+  }
+
+proc isSiegeUnit*(unitClass: AgentUnitClass): bool =
+  ## Return true when a unit class is siege.
+  unitClass in {UnitBatteringRam, UnitMangonel, UnitTrebuchet, UnitScorpion}
 
 when defined(audio):
-  import audio
-  import types
-  import vmath
-
-  # Unit class to voice mapping
-  proc getUnitVoiceCategory*(unitClass: AgentUnitClass): string =
-    ## Map unit class to voice category
-    case unitClass
-    of UnitVillager:
-      "villager"
-    of UnitMonk:
-      "monk"
-    of UnitKnight, UnitCataphract, UnitScout, UnitLightCavalry, UnitHussar, UnitMameluke:
-      "cavalry"
-    of UnitArcher, UnitCrossbowman, UnitArbalester, UnitLongbowman, UnitJanissary:
-      "archer"
-    of UnitBatteringRam, UnitMangonel, UnitTrebuchet, UnitScorpion:
-      "siege"
-    of UnitBoat, UnitTradeCog, UnitGalley, UnitFireShip:
-      "naval"
-    else:
-      "soldier"
-
-  proc isRangedUnit*(unitClass: AgentUnitClass): bool =
-    ## Check if unit class uses ranged attacks
-    unitClass in {UnitArcher, UnitCrossbowman, UnitArbalester, UnitLongbowman,
-                  UnitJanissary, UnitMangonel, UnitTrebuchet, UnitScorpion,
-                  UnitGalley}
-
-  proc isCavalryUnit*(unitClass: AgentUnitClass): bool =
-    ## Check if unit class is cavalry (for death sounds)
-    unitClass in {UnitKnight, UnitCataphract, UnitScout, UnitLightCavalry,
-                  UnitHussar, UnitMameluke}
-
-  proc isSiegeUnit*(unitClass: AgentUnitClass): bool =
-    ## Check if unit class is siege
-    unitClass in {UnitBatteringRam, UnitMangonel, UnitTrebuchet, UnitScorpion}
-
-  # Combat audio triggers
+  import
+    audio
 
   proc audioOnAttack*(attackerClass: AgentUnitClass, pos: IVec2) =
-    ## Called when a unit attacks
+    ## Play audio for a unit attack.
     if isRangedUnit(attackerClass):
       playCombatSound(SndArrowShoot, pos, 0.7)
     elif isSiegeUnit(attackerClass):
@@ -57,8 +98,8 @@ when defined(audio):
       playCombatSound(SndSwordHit, pos, 0.8)
 
   proc audioOnHit*(targetClass: AgentUnitClass, pos: IVec2, damage: int) =
-    ## Called when a unit takes damage
-    # Scale volume slightly by damage
+    ## Play audio for a unit taking damage.
+    # Scale volume slightly by damage.
     let vol = clamp(0.5 + (damage.float32 / 50.0), 0.5, 1.0)
     if isRangedUnit(targetClass):
       playCombatSound(SndArrowHit, pos, vol * 0.8)
@@ -66,7 +107,7 @@ when defined(audio):
       playCombatSound(SndSwordHit, pos, vol)
 
   proc audioOnDeath*(unitClass: AgentUnitClass, pos: IVec2) =
-    ## Called when a unit dies
+    ## Play audio for a unit death.
     if isCavalryUnit(unitClass):
       playDeathSound(SndDeathHorse, pos)
     elif isSiegeUnit(unitClass):
@@ -75,120 +116,179 @@ when defined(audio):
       playDeathSound(SndDeathMale, pos)
 
   proc audioOnConversion*(pos: IVec2) =
-    ## Called when a monk converts a unit
+    ## Play audio for a monk conversion.
     playCombatSound(SndMonkConvert, pos, 1.0)
 
-  # Building audio triggers
-
   proc audioOnBuildingStart*(pos: IVec2) =
-    ## Called when building construction starts
+    ## Play audio for construction start.
     playBuildingSound(SndBuildStart, pos)
 
   proc audioOnBuildingProgress*(pos: IVec2) =
-    ## Called during building construction (periodic)
+    ## Play audio during construction progress.
     playBuildingSound(SndBuildHammer, pos)
 
   proc audioOnBuildingComplete*(pos: IVec2) =
-    ## Called when building construction completes
+    ## Play audio for construction completion.
     playBuildingSound(SndBuildComplete, pos)
 
   proc audioOnBuildingDestroyed*(pos: IVec2) =
-    ## Called when a building is destroyed
+    ## Play audio for a destroyed building.
     playDeathSound(SndBuildDestroy, pos)
 
-  # Resource gathering audio triggers
-
   proc audioOnGatherWood*(pos: IVec2) =
-    ## Called when gathering wood
+    ## Play audio for wood gathering.
     playResourceSound(SndChopWood, pos)
 
   proc audioOnGatherStone*(pos: IVec2) =
-    ## Called when mining stone
+    ## Play audio for stone gathering.
     playResourceSound(SndMineStone, pos)
 
   proc audioOnGatherGold*(pos: IVec2) =
-    ## Called when mining gold
+    ## Play audio for gold gathering.
     playResourceSound(SndMineGold, pos)
 
   proc audioOnGatherFood*(pos: IVec2, fromFarm: bool) =
-    ## Called when gathering food
+    ## Play audio for food gathering.
     if fromFarm:
       playResourceSound(SndFarmHarvest, pos)
     else:
       playResourceSound(SndFishCatch, pos)
 
-  # Unit selection and command audio
-
   proc audioOnUnitSelected*(unitClass: AgentUnitClass) =
-    ## Called when unit(s) are selected
-    let category = getUnitVoiceCategory(unitClass)
-    case category
-    of "villager":
+    ## Play audio for unit selection.
+    case voiceCategory(unitClass)
+    of VoiceVillager:
       playUnitVoice(SndVillagerWhat)
-    of "monk":
+    of VoiceMonk:
       playUnitVoice(SndMonkYes)
     else:
       playUnitVoice(SndSoldierWhat)
 
   proc audioOnUnitCommand*(unitClass: AgentUnitClass) =
-    ## Called when unit(s) receive a command (move, attack, etc.)
-    let category = getUnitVoiceCategory(unitClass)
-    case category
-    of "villager":
+    ## Play audio for a unit command.
+    case voiceCategory(unitClass)
+    of VoiceVillager:
       playUnitVoice(SndVillagerYes)
-    of "monk":
+    of VoiceMonk:
       playUnitVoice(SndMonkYes)
     else:
       playUnitVoice(SndSoldierYes)
 
-  # Research and tech audio
-
   proc audioOnResearchComplete*() =
-    ## Called when research/tech completes
+    ## Play audio for completed research.
     playUISound(SndUIResearchComplete)
 
-  # UI audio
-
   proc audioOnUIClick*() =
-    ## Called on UI button clicks
+    ## Play audio for a UI click.
     playUISound(SndUIClick)
 
   proc audioOnAlert*() =
-    ## Called for important alerts
+    ## Play audio for an important alert.
     playUISound(SndUIAlert)
 
-  # Ambient audio based on biome
-
   proc updateAmbientForBiome*(biome: string) =
-    ## Update ambient sound based on current biome
+    ## Update the ambient sound for the current biome.
     setAmbientBiome(biome)
 
   proc updateAmbientForCombat*(inCombat: bool) =
-    ## Overlay combat ambient when battle is happening nearby
+    ## Enable combat ambience when nearby combat is active.
     if inCombat:
       setAmbientBiome("battle")
 
-# Stub implementations when audio is disabled
 else:
-  import types
-  import vmath
+  proc audioOnAttack*(attackerClass: AgentUnitClass, pos: IVec2) =
+    ## Ignore attack audio when audio is disabled.
+    discard attackerClass
+    discard pos
+    discard
 
-  proc audioOnAttack*(attackerClass: AgentUnitClass, pos: IVec2) = discard
-  proc audioOnHit*(targetClass: AgentUnitClass, pos: IVec2, damage: int) = discard
-  proc audioOnDeath*(unitClass: AgentUnitClass, pos: IVec2) = discard
-  proc audioOnConversion*(pos: IVec2) = discard
-  proc audioOnBuildingStart*(pos: IVec2) = discard
-  proc audioOnBuildingProgress*(pos: IVec2) = discard
-  proc audioOnBuildingComplete*(pos: IVec2) = discard
-  proc audioOnBuildingDestroyed*(pos: IVec2) = discard
-  proc audioOnGatherWood*(pos: IVec2) = discard
-  proc audioOnGatherStone*(pos: IVec2) = discard
-  proc audioOnGatherGold*(pos: IVec2) = discard
-  proc audioOnGatherFood*(pos: IVec2, fromFarm: bool) = discard
-  proc audioOnUnitSelected*(unitClass: AgentUnitClass) = discard
-  proc audioOnUnitCommand*(unitClass: AgentUnitClass) = discard
-  proc audioOnResearchComplete*() = discard
-  proc audioOnUIClick*() = discard
-  proc audioOnAlert*() = discard
-  proc updateAmbientForBiome*(biome: string) = discard
-  proc updateAmbientForCombat*(inCombat: bool) = discard
+  proc audioOnHit*(targetClass: AgentUnitClass, pos: IVec2, damage: int) =
+    ## Ignore hit audio when audio is disabled.
+    discard targetClass
+    discard pos
+    discard damage
+    discard
+
+  proc audioOnDeath*(unitClass: AgentUnitClass, pos: IVec2) =
+    ## Ignore death audio when audio is disabled.
+    discard unitClass
+    discard pos
+    discard
+
+  proc audioOnConversion*(pos: IVec2) =
+    ## Ignore conversion audio when audio is disabled.
+    discard pos
+    discard
+
+  proc audioOnBuildingStart*(pos: IVec2) =
+    ## Ignore build-start audio when audio is disabled.
+    discard pos
+    discard
+
+  proc audioOnBuildingProgress*(pos: IVec2) =
+    ## Ignore build-progress audio when audio is disabled.
+    discard pos
+    discard
+
+  proc audioOnBuildingComplete*(pos: IVec2) =
+    ## Ignore build-complete audio when audio is disabled.
+    discard pos
+    discard
+
+  proc audioOnBuildingDestroyed*(pos: IVec2) =
+    ## Ignore building-destroyed audio when audio is disabled.
+    discard pos
+    discard
+
+  proc audioOnGatherWood*(pos: IVec2) =
+    ## Ignore wood-gathering audio when audio is disabled.
+    discard pos
+    discard
+
+  proc audioOnGatherStone*(pos: IVec2) =
+    ## Ignore stone-gathering audio when audio is disabled.
+    discard pos
+    discard
+
+  proc audioOnGatherGold*(pos: IVec2) =
+    ## Ignore gold-gathering audio when audio is disabled.
+    discard pos
+    discard
+
+  proc audioOnGatherFood*(pos: IVec2, fromFarm: bool) =
+    ## Ignore food-gathering audio when audio is disabled.
+    discard pos
+    discard fromFarm
+    discard
+
+  proc audioOnUnitSelected*(unitClass: AgentUnitClass) =
+    ## Ignore unit-selection audio when audio is disabled.
+    discard unitClass
+    discard
+
+  proc audioOnUnitCommand*(unitClass: AgentUnitClass) =
+    ## Ignore unit-command audio when audio is disabled.
+    discard unitClass
+    discard
+
+  proc audioOnResearchComplete*() =
+    ## Ignore research audio when audio is disabled.
+    discard
+
+  proc audioOnUIClick*() =
+    ## Ignore UI-click audio when audio is disabled.
+    discard
+
+  proc audioOnAlert*() =
+    ## Ignore alert audio when audio is disabled.
+    discard
+
+  proc updateAmbientForBiome*(biome: string) =
+    ## Ignore biome ambience changes when audio is disabled.
+    discard biome
+    discard
+
+  proc updateAmbientForCombat*(inCombat: bool) =
+    ## Ignore combat ambience changes when audio is disabled.
+    discard inCombat
+    discard

@@ -1,266 +1,253 @@
-## Tests for balance_scorecard.nim
-##
-## Verifies the balance scorecard instrument correctly collects
-## and reports game balance metrics.
+## Balance scorecard checks.
 
-import std/[unittest, os, json, strutils]
-import environment
-import agent_control
-import types
-import balance_scorecard
+import
+  std/[json, os, strutils],
+  agent_control, balance_scorecard, environment, types
 
 const
   BalanceSeed = 42
   BalanceSteps = 100
 
-suite "Balance Scorecard - Collection":
-
-  test "scorecard collector initializes from environment":
-    # Set env vars before init
-    putEnv("TV_SCORECARD_ENABLED", "1")
-    putEnv("TV_SCORECARD_INTERVAL", "10")
-    putEnv("TV_SCORECARD_DIR", "/tmp/test_scorecards/")
-
-    initCollector()
-
-    check collector.enabled == true
-    check collector.sampleInterval == 10
-    check collector.outputDir == "/tmp/test_scorecards/"
-
-    # Cleanup
-    delEnv("TV_SCORECARD_ENABLED")
-    delEnv("TV_SCORECARD_INTERVAL")
-    delEnv("TV_SCORECARD_DIR")
-
-  test "scorecard disabled by default":
-    # Reset collector
-    collector.initialized = false
-    delEnv("TV_SCORECARD_ENABLED")
-
-    initCollector()
-
-    check collector.enabled == false
-
-  test "startMatch initializes scorecard state":
-    putEnv("TV_SCORECARD_ENABLED", "1")
-    collector.initialized = false
-    initCollector()
-
-    var config = defaultEnvironmentConfig()
-    config.maxSteps = BalanceSteps
-    let env = newEnvironment(config, BalanceSeed)
-
-    startMatch(env, BalanceSeed)
-
-    check collector.currentScorecard.seed == BalanceSeed
-    check collector.currentScorecard.matchId.len > 0
-    for teamId in 0 ..< MapRoomObjectsTeams:
-      check collector.currentScorecard.teams[teamId].teamId == teamId
-
-    delEnv("TV_SCORECARD_ENABLED")
-
-  test "maybeSample collects data at intervals":
-    putEnv("TV_SCORECARD_ENABLED", "1")
-    putEnv("TV_SCORECARD_INTERVAL", "10")
-    collector.initialized = false
-    initCollector()
-
-    var config = defaultEnvironmentConfig()
-    config.maxSteps = BalanceSteps
-    let env = newEnvironment(config, BalanceSeed)
-
-    initGlobalController(BuiltinAI, seed = BalanceSeed)
-
-    startMatch(env, BalanceSeed)
-
-    # Run a few steps
-    for step in 0 ..< 25:
-      var actions = getActions(env)
-      env.step(addr actions)
-      maybeSample(env)
-
-    # Should have at least 2 samples (at steps ~10, ~20)
-    check collector.currentScorecard.teams[0].resourceCurve.len >= 2
-
-    delEnv("TV_SCORECARD_ENABLED")
-    delEnv("TV_SCORECARD_INTERVAL")
-
-suite "Balance Scorecard - Metrics":
-
-  test "resource samples capture stockpile data":
-    putEnv("TV_SCORECARD_ENABLED", "1")
-    collector.initialized = false
-    initCollector()
-
-    var config = defaultEnvironmentConfig()
-    let env = newEnvironment(config, BalanceSeed)
-
-    startMatch(env, BalanceSeed)
-
-    # Run a few steps to generate some resource activity
-    initGlobalController(BuiltinAI, seed = BalanceSeed)
-    for step in 0 ..< 50:
-      var actions = getActions(env)
-      env.step(addr actions)
-      maybeSample(env)
-
-    endMatch(env)
-
-    # Check that final resources were captured
-    for teamId in 0 ..< MapRoomObjectsTeams:
-      let r = collector.currentScorecard.teams[teamId].finalResources
-      # Resources should be non-negative
-      check r.food >= 0
-      check r.wood >= 0
-      check r.gold >= 0
-      check r.stone >= 0
-
-    delEnv("TV_SCORECARD_ENABLED")
-
-  test "unit composition tracks unit classes":
-    putEnv("TV_SCORECARD_ENABLED", "1")
-    collector.initialized = false
-    initCollector()
-
-    var config = defaultEnvironmentConfig()
-    let env = newEnvironment(config, BalanceSeed)
-
-    startMatch(env, BalanceSeed)
-
-    initGlobalController(BuiltinAI, seed = BalanceSeed)
-    for step in 0 ..< 20:
-      var actions = getActions(env)
-      env.step(addr actions)
-      maybeSample(env)
-
-    endMatch(env)
-
-    # Each team should have some villagers at start
-    var totalVillagers = 0
-    for teamId in 0 ..< MapRoomObjectsTeams:
-      totalVillagers += collector.currentScorecard.teams[teamId].finalUnits.villagers
-
-    check totalVillagers > 0
-
-    delEnv("TV_SCORECARD_ENABLED")
-
-  test "tech progress tracks research":
-    putEnv("TV_SCORECARD_ENABLED", "1")
-    collector.initialized = false
-    initCollector()
-
-    var config = defaultEnvironmentConfig()
-    let env = newEnvironment(config, BalanceSeed)
-
-    startMatch(env, BalanceSeed)
-
-    # Tech starts at 0
-    let initialTech = collector.currentScorecard.teams[0].finalTech
-    check initialTech.blacksmithLevels == 0
-    check initialTech.universityTechs == 0
-    check initialTech.castleTechs == 0
-
-    delEnv("TV_SCORECARD_ENABLED")
-
-suite "Balance Scorecard - Output":
-
-  test "scorecardToJson produces valid JSON":
-    putEnv("TV_SCORECARD_ENABLED", "1")
-    collector.initialized = false
-    initCollector()
-
-    var config = defaultEnvironmentConfig()
-    let env = newEnvironment(config, BalanceSeed)
-
-    startMatch(env, BalanceSeed)
-    endMatch(env)
-
-    let jsonNode = scorecardToJson(collector.currentScorecard)
-
-    # Verify structure
-    check jsonNode.hasKey("match_id")
-    check jsonNode.hasKey("seed")
-    check jsonNode.hasKey("teams")
-    check jsonNode.hasKey("balance_metrics")
-    check jsonNode["teams"].len == MapRoomObjectsTeams
-
-    delEnv("TV_SCORECARD_ENABLED")
-
-  test "generateSummary produces readable output":
-    putEnv("TV_SCORECARD_ENABLED", "1")
-    collector.initialized = false
-    initCollector()
-
-    var config = defaultEnvironmentConfig()
-    let env = newEnvironment(config, BalanceSeed)
-
-    startMatch(env, BalanceSeed)
-    endMatch(env)
-
-    let summary = generateSummary(collector.currentScorecard)
-
-    # Check for expected sections
-    check summary.contains("GAME BALANCE SCORECARD")
-    check summary.contains("BALANCE METRICS")
-    check summary.contains("PER-TEAM SUMMARY")
-    check summary.contains("FINAL RESOURCES")
-    check summary.contains("FINAL UNIT COMPOSITION")
-    check summary.contains("TECHNOLOGY PROGRESS")
-
-    delEnv("TV_SCORECARD_ENABLED")
-
-suite "Balance Scorecard - Balance Metrics":
-
-  test "balance metrics are between 0 and 1":
-    putEnv("TV_SCORECARD_ENABLED", "1")
-    collector.initialized = false
-    initCollector()
-
-    var config = defaultEnvironmentConfig()
-    config.maxSteps = 100
-    let env = newEnvironment(config, BalanceSeed)
-
-    initGlobalController(BuiltinAI, seed = BalanceSeed)
-
-    startMatch(env, BalanceSeed)
-
-    for step in 0 ..< 100:
-      var actions = getActions(env)
-      env.step(addr actions)
-      maybeSample(env)
-
-    endMatch(env)
-
-    let sc = collector.currentScorecard
-    check sc.resourceParity >= 0.0 and sc.resourceParity <= 1.0
-    check sc.militaryBalance >= 0.0 and sc.militaryBalance <= 1.0
-    check sc.techParity >= 0.0 and sc.techParity <= 1.0
-
-    delEnv("TV_SCORECARD_ENABLED")
-
-  test "idle villager percentage is reasonable":
-    putEnv("TV_SCORECARD_ENABLED", "1")
-    collector.initialized = false
-    initCollector()
-
-    var config = defaultEnvironmentConfig()
-    config.maxSteps = 50
-    let env = newEnvironment(config, BalanceSeed)
-
-    initGlobalController(BuiltinAI, seed = BalanceSeed)
-
-    startMatch(env, BalanceSeed)
-
-    for step in 0 ..< 50:
-      var actions = getActions(env)
-      env.step(addr actions)
-      maybeSample(env)
-
-    endMatch(env)
-
-    # Idle percentage should be between 0 and 100
-    for teamId in 0 ..< MapRoomObjectsTeams:
-      let idle = collector.currentScorecard.teams[teamId].idleVillagerPct
-      check idle >= 0.0 and idle <= 100.0
-
-    delEnv("TV_SCORECARD_ENABLED")
+proc clearScorecardEnv() =
+  ## Clear scorecard-related environment variables.
+  delEnv("TV_SCORECARD_ENABLED")
+  delEnv("TV_SCORECARD_INTERVAL")
+  delEnv("TV_SCORECARD_DIR")
+
+proc resetCollectorState() =
+  ## Reset the global scorecard collector state.
+  collector = ScorecardCollector()
+
+proc newBalanceEnv(maxSteps: int = BalanceSteps): Environment =
+  ## Create a test environment for balance scorecard checks.
+  var config = defaultEnvironmentConfig()
+  config.maxSteps = maxSteps
+  newEnvironment(config, BalanceSeed)
+
+proc runSampledMatch(env: Environment, steps: int) =
+  ## Advance the environment and sample the scorecard each step.
+  initGlobalController(BuiltinAI, seed = BalanceSeed)
+  for _ in 0 ..< steps:
+    var actions = getActions(env)
+    env.step(addr actions)
+    maybeSample(env)
+
+proc checkCollectorInit() =
+  ## Verify collector initialization reads environment variables.
+  echo "Testing scorecard collector initialization"
+  defer:
+    clearScorecardEnv()
+    resetCollectorState()
+
+  putEnv("TV_SCORECARD_ENABLED", "1")
+  putEnv("TV_SCORECARD_INTERVAL", "10")
+  putEnv("TV_SCORECARD_DIR", "/tmp/test_scorecards/")
+  initCollector()
+
+  doAssert collector.enabled
+  doAssert collector.sampleInterval == 10
+  doAssert collector.outputDir == "/tmp/test_scorecards/"
+
+proc checkCollectorDisabledByDefault() =
+  ## Verify the collector is disabled by default.
+  echo "Testing scorecard disabled by default"
+  defer:
+    clearScorecardEnv()
+    resetCollectorState()
+
+  initCollector()
+  doAssert not collector.enabled
+
+proc checkStartMatchInit() =
+  ## Verify match start initializes the scorecard state.
+  echo "Testing scorecard startMatch initialization"
+  defer:
+    clearScorecardEnv()
+    resetCollectorState()
+
+  putEnv("TV_SCORECARD_ENABLED", "1")
+  initCollector()
+
+  let env = newBalanceEnv()
+  startMatch(env, BalanceSeed)
+
+  doAssert collector.currentScorecard.seed == BalanceSeed
+  doAssert collector.currentScorecard.matchId.len > 0
+  for teamId in 0 ..< MapRoomObjectsTeams:
+    doAssert collector.currentScorecard.teams[teamId].teamId == teamId
+
+proc checkMaybeSampleCollectsData() =
+  ## Verify sampling collects scorecard data at the configured interval.
+  echo "Testing scorecard interval sampling"
+  defer:
+    clearScorecardEnv()
+    resetCollectorState()
+
+  putEnv("TV_SCORECARD_ENABLED", "1")
+  putEnv("TV_SCORECARD_INTERVAL", "10")
+  initCollector()
+
+  let env = newBalanceEnv()
+  startMatch(env, BalanceSeed)
+  runSampledMatch(env, 25)
+
+  doAssert collector.currentScorecard.teams[0].resourceCurve.len >= 2
+
+proc checkResourceSamples() =
+  ## Verify final resource samples are captured.
+  echo "Testing scorecard resource sampling"
+  defer:
+    clearScorecardEnv()
+    resetCollectorState()
+
+  putEnv("TV_SCORECARD_ENABLED", "1")
+  initCollector()
+
+  let env = newBalanceEnv()
+  startMatch(env, BalanceSeed)
+  runSampledMatch(env, 50)
+  endMatch(env)
+
+  for teamId in 0 ..< MapRoomObjectsTeams:
+    let resources = collector.currentScorecard.teams[teamId].finalResources
+    doAssert resources.food >= 0
+    doAssert resources.wood >= 0
+    doAssert resources.gold >= 0
+    doAssert resources.stone >= 0
+
+proc checkUnitComposition() =
+  ## Verify unit composition sampling captures villagers.
+  echo "Testing scorecard unit composition"
+  defer:
+    clearScorecardEnv()
+    resetCollectorState()
+
+  putEnv("TV_SCORECARD_ENABLED", "1")
+  initCollector()
+
+  let env = newBalanceEnv()
+  startMatch(env, BalanceSeed)
+  runSampledMatch(env, 20)
+  endMatch(env)
+
+  var totalVillagers = 0
+  for teamId in 0 ..< MapRoomObjectsTeams:
+    totalVillagers +=
+      collector.currentScorecard.teams[teamId].finalUnits.villagers
+  doAssert totalVillagers > 0
+
+proc checkTechProgress() =
+  ## Verify tech progress starts at zero.
+  echo "Testing scorecard tech progress"
+  defer:
+    clearScorecardEnv()
+    resetCollectorState()
+
+  putEnv("TV_SCORECARD_ENABLED", "1")
+  initCollector()
+
+  let env = newBalanceEnv()
+  startMatch(env, BalanceSeed)
+
+  let initialTech = collector.currentScorecard.teams[0].finalTech
+  doAssert initialTech.blacksmithLevels == 0
+  doAssert initialTech.universityTechs == 0
+  doAssert initialTech.castleTechs == 0
+
+proc checkScorecardToJson() =
+  ## Verify JSON output has the expected shape.
+  echo "Testing scorecard JSON output"
+  defer:
+    clearScorecardEnv()
+    resetCollectorState()
+
+  putEnv("TV_SCORECARD_ENABLED", "1")
+  initCollector()
+
+  let env = newBalanceEnv()
+  startMatch(env, BalanceSeed)
+  endMatch(env)
+
+  let jsonNode = scorecardToJson(collector.currentScorecard)
+  doAssert jsonNode.hasKey("match_id")
+  doAssert jsonNode.hasKey("seed")
+  doAssert jsonNode.hasKey("teams")
+  doAssert jsonNode.hasKey("balance_metrics")
+  doAssert jsonNode["teams"].len == MapRoomObjectsTeams
+
+proc checkGenerateSummary() =
+  ## Verify summary output contains the expected sections.
+  echo "Testing scorecard summary output"
+  defer:
+    clearScorecardEnv()
+    resetCollectorState()
+
+  putEnv("TV_SCORECARD_ENABLED", "1")
+  initCollector()
+
+  let env = newBalanceEnv()
+  startMatch(env, BalanceSeed)
+  endMatch(env)
+
+  let summary = generateSummary(collector.currentScorecard)
+  doAssert summary.contains("GAME BALANCE SCORECARD")
+  doAssert summary.contains("BALANCE METRICS")
+  doAssert summary.contains("PER-TEAM SUMMARY")
+  doAssert summary.contains("FINAL RESOURCES")
+  doAssert summary.contains("FINAL UNIT COMPOSITION")
+  doAssert summary.contains("TECHNOLOGY PROGRESS")
+
+proc checkBalanceMetrics() =
+  ## Verify aggregate balance metrics stay within the expected range.
+  echo "Testing scorecard balance metrics"
+  defer:
+    clearScorecardEnv()
+    resetCollectorState()
+
+  putEnv("TV_SCORECARD_ENABLED", "1")
+  initCollector()
+
+  let env = newBalanceEnv(100)
+  startMatch(env, BalanceSeed)
+  runSampledMatch(env, 100)
+  endMatch(env)
+
+  let scorecard = collector.currentScorecard
+  doAssert scorecard.resourceParity >= 0.0
+  doAssert scorecard.resourceParity <= 1.0
+  doAssert scorecard.militaryBalance >= 0.0
+  doAssert scorecard.militaryBalance <= 1.0
+  doAssert scorecard.techParity >= 0.0
+  doAssert scorecard.techParity <= 1.0
+
+proc checkIdleVillagerPct() =
+  ## Verify idle villager percentages stay within valid bounds.
+  echo "Testing scorecard idle villager percentage"
+  defer:
+    clearScorecardEnv()
+    resetCollectorState()
+
+  putEnv("TV_SCORECARD_ENABLED", "1")
+  initCollector()
+
+  let env = newBalanceEnv(50)
+  startMatch(env, BalanceSeed)
+  runSampledMatch(env, 50)
+  endMatch(env)
+
+  for teamId in 0 ..< MapRoomObjectsTeams:
+    let idle = collector.currentScorecard.teams[teamId].idleVillagerPct
+    doAssert idle >= 0.0
+    doAssert idle <= 100.0
+
+checkCollectorInit()
+checkCollectorDisabledByDefault()
+checkStartMatchInit()
+checkMaybeSampleCollectsData()
+checkResourceSamples()
+checkUnitComposition()
+checkTechProgress()
+checkScorecardToJson()
+checkGenerateSummary()
+checkBalanceMetrics()
+checkIdleVillagerPct()

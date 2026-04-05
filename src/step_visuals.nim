@@ -259,19 +259,3 @@ proc stepDecayShields(env: Environment) =
   for i in 0 ..< MapAgents:
     if env.shieldCountdown[i] > 0:
       env.shieldCountdown[i] = env.shieldCountdown[i] - 1
-
-proc resetVisualEffects(env: Environment) =
-  ## Clear all visual effect pools for game reset. setLen(0) preserves capacity.
-  env.projectiles.setLen(0)
-  env.projectilePool.stats = PoolStats()
-  env.damageNumbers.setLen(0)
-  env.debris.setLen(0)
-  env.spawnEffects.setLen(0)
-  env.ragdolls.setLen(0)
-  env.dyingUnits.setLen(0)
-  env.gatherSparkles.setLen(0)
-  env.constructionDust.setLen(0)
-  env.unitTrails.setLen(0)
-  env.waterRipples.setLen(0)
-  env.attackImpacts.setLen(0)
-  env.conversionEffects.setLen(0)

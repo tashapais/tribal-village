@@ -367,8 +367,3 @@ proc ensureTintColors*(env: Environment) {.inline.} =
   ## Skip in headless/training mode where only frozen state matters.
   if env.tintColorsDirty:
     applyTintModificationsImpl(env)
-
-proc applyTintModifications*(env: Environment) =
-  ## Legacy wrapper - use ensureTintColors for new code.
-  ## Kept for backwards compatibility.
-  ensureTintColors(env)

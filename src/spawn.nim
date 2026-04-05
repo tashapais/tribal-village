@@ -72,11 +72,6 @@ proc gatherEmptyAround(env: Environment, center: IVec2, primaryRadius: int,
       if pos notin result:
         result.add(pos)
 
-template isNearWater(env: Environment, pos: IVec2, radius: int): bool =
-  ## Deprecated: use hasWaterNearby(env, pos, radius, includeShallow=true) instead.
-  ## Kept as template for backward compatibility in this file.
-  hasWaterNearby(env, pos, radius, includeShallow = true)
-
 proc addResourceNode(env: Environment, pos: IVec2, kind: ThingKind,
                      item: ItemKey, amount: int = ResourceNodeInitial) =
   if not env.isSpawnable(pos):
@@ -152,6 +147,34 @@ proc carveTreeOasisWater(env: Environment, center: IVec2, rx, ry: int, rng: var 
         continue
       setTerrain(env, pos, Water)
 
+proc resetVictoryState(env: Environment) =
+  env.victoryWinner = -1
+  env.victoryWinners = NoTeamMask
+  for teamId in 0 ..< MapRoomObjectsTeams:
+    env.victoryStates[teamId].wonderBuiltStep = -1
+    env.victoryStates[teamId].relicHoldStartStep = -1
+    env.victoryStates[teamId].kingAgentId = -1
+    env.victoryStates[teamId].hillControlStartStep = -1
+
+proc resetVisualEffects(env: Environment) =
+  ## Clear all visual effect pools for reset. setLen(0) preserves capacity.
+  if env.projectiles.len == 0:
+    env.projectiles = newSeqOfCap[Projectile](ProjectilePoolCapacity)
+  else:
+    env.projectiles.setLen(0)
+  env.projectilePool.stats = PoolStats()
+  env.damageNumbers.setLen(0)
+  env.debris.setLen(0)
+  env.spawnEffects.setLen(0)
+  env.ragdolls.setLen(0)
+  env.dyingUnits.setLen(0)
+  env.gatherSparkles.setLen(0)
+  env.constructionDust.setLen(0)
+  env.unitTrails.setLen(0)
+  env.waterRipples.setLen(0)
+  env.attackImpacts.setLen(0)
+  env.conversionEffects.setLen(0)
+
 proc initState(env: Environment) =
   ## Reset all environment state to prepare for a new game.
   inc env.mapGeneration
@@ -166,13 +189,7 @@ proc initState(env: Environment) =
     env.teamVillagers[teamId].setLen(0)
 
   # Reset victory conditions (must be -1, not default 0, or Team 0 wins immediately)
-  env.victoryWinner = -1
-  env.victoryWinners = NoTeamMask
-  for teamId in 0 ..< MapRoomObjectsTeams:
-    env.victoryStates[teamId].wonderBuiltStep = -1
-    env.victoryStates[teamId].relicHoldStartStep = -1
-    env.victoryStates[teamId].kingAgentId = -1
-    env.victoryStates[teamId].hillControlStartStep = -1
+  env.resetVictoryState()
 
   # Initialize alliance state: each team is allied with itself only
   for teamId in 0 ..< MapRoomObjectsTeams:
@@ -224,25 +241,8 @@ proc initState(env: Environment) =
   env.actionTintPositions.setLen(0)
   env.shieldCountdown.clear()
 
-  # Pre-allocate projectile pool capacity to avoid growth allocations during combat
-  if env.projectiles.len == 0:
-    env.projectiles = newSeqOfCap[Projectile](ProjectilePoolCapacity)
-  else:
-    env.projectiles.setLen(0)  # Clear but keep existing capacity
-  env.projectilePool.stats = PoolStats()  # Reset stats
-
-  # Clear visual effect arrays (setLen(0) retains capacity for pooling)
-  env.damageNumbers.setLen(0)
-  env.ragdolls.setLen(0)
-  env.debris.setLen(0)
-  env.spawnEffects.setLen(0)
-  env.dyingUnits.setLen(0)
-  env.gatherSparkles.setLen(0)
-  env.constructionDust.setLen(0)
-  env.unitTrails.setLen(0)
-  env.waterRipples.setLen(0)
-  env.attackImpacts.setLen(0)
-  env.conversionEffects.setLen(0)
+  # Reset visual effect pools while keeping pooled capacity hot.
+  env.resetVisualEffects()
 
   # Pre-allocate action tint positions capacity
   if env.actionTintPositions.len == 0:
@@ -277,7 +277,7 @@ proc initTerrainAndBiomes(env: Environment, rng: var Rand, seed: int): seq[TreeO
     let numGroves = randIntInclusive(rng, TreeOasisClusterCountMin, TreeOasisClusterCountMax)
     for _ in 0 ..< numGroves:
       let pos = pickInteriorPos(rng, 3, 16, proc(pos: IVec2, attempt: int): bool =
-        isNearWater(env, pos, 5) or attempt > 10
+        hasWaterNearby(env, pos, 5, includeShallow = true) or attempt > 10
       )
       let rx = randIntInclusive(rng, TreeOasisWaterRadiusMin, TreeOasisWaterRadiusMax)
       let ry = randIntInclusive(rng, TreeOasisWaterRadiusMin, TreeOasisWaterRadiusMax)
@@ -607,25 +607,28 @@ proc initTradingHub(env: Environment, rng: var Rand) =
         env.baseTintColors[x][y] = TradingHubTint
         env.tintLocked[x][y] = true
 
+    proc paintRoadTile(x, y: int) =
+      let pos = ivec2(x.int32, y.int32)
+      if env.terrain[x][y] in WaterTerrain:
+        setTerrain(env, pos, Bridge)
+      else:
+        setTerrain(env, pos, Road)
+
     proc extendRoad(startX, startY, dx, dy: int) =
       var x = startX
       var y = startY
       while x >= MapBorder + 1 and x < MapWidth - MapBorder - 1 and
           y >= MapBorder + 1 and y < MapHeight - MapBorder - 1:
-        let pos = ivec2(x.int32, y.int32)
         let existing = env.terrain[x][y]
-        if env.terrain[x][y] == Water:
-          setTerrain(env, pos, Bridge)
-        else:
-          setTerrain(env, pos, Road)
+        paintRoadTile(x, y)
         if (x < x0 or x > x1 or y < y0 or y > y1) and existing in {Road, Bridge}:
           break
         x += dx
         y += dy
 
     let roadX = centerX
-    extendRoad(roadX, centerY, 1, 0)
-    extendRoad(roadX, centerY, -1, 0)
+    for x in x0 .. x1:
+      paintRoadTile(x, centerY)
     extendRoad(roadX, centerY, 0, 1)
     extendRoad(roadX, centerY, 0, -1)
     proc canPlaceHubThing(x, y: int): bool =
@@ -1790,7 +1793,7 @@ proc initResources(env: Environment, rng: var Rand, treeOases: seq[TreeOasis]) =
     # Wheat fields.
     for _ in 0 ..< randIntInclusive(rng, WheatFieldClusterCountMin, WheatFieldClusterCountMax):
       let pos = pickInteriorPos(rng, 3, 20, proc(pos: IVec2, attempt: int): bool =
-        isNearWater(env, pos, 5) or attempt > 10
+        hasWaterNearby(env, pos, 5, includeShallow = true) or attempt > 10
       )
       let fieldSize = randIntInclusive(rng, WheatFieldSizeMin, WheatFieldSizeMax)
       for (sizeDelta, density) in [(0, 1.0), (1, 0.5)]:
@@ -1809,7 +1812,7 @@ proc initResources(env: Environment, rng: var Rand, treeOases: seq[TreeOasis]) =
           if env.terrain[px][py] == Water:
             continue
           let pos = ivec2(px.int32, py.int32)
-          if isNearWater(env, pos, 1) and randChance(rng, 0.7) and env.terrain[px][py] in TreeGround:
+          if hasWaterNearby(env, pos, 1, includeShallow = true) and randChance(rng, 0.7) and env.terrain[px][py] in TreeGround:
             addResourceNode(env, pos, Tree, ItemWood)
 
     for oasis in treeOases:
@@ -1892,7 +1895,7 @@ proc initResources(env: Environment, rng: var Rand, treeOases: seq[TreeOasis]) =
 
     for _ in 0 ..< BushClusterCount:
       let pos = pickInteriorPos(rng, 2, 12, proc(pos: IVec2, attempt: int): bool =
-        isNearWater(env, pos, BushWaterProximity) or attempt >= 9
+        hasWaterNearby(env, pos, BushWaterProximity, includeShallow = true) or attempt >= 9
       )
       let size = randIntInclusive(rng, BushClusterSizeMin, BushClusterSizeMax)
       placeResourceCluster(env, pos.x.int, pos.y.int, size, ClusterDensityMedium, ClusterFalloffSteep, Bush, ItemPlant, ResourceGround, rng)

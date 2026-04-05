@@ -144,50 +144,50 @@ suite "Coordination - Finding Requests":
     check req == nil
 
 suite "Coordination - Defense Requests":
-  test "hasDefenseRequest returns true when pending":
+  test "hasUnfulfilledRequest returns true for pending defense requests":
     for i in 0 ..< MapRoomObjectsTeams:
       teamCoordination[i] = CoordinationState()
 
-    check hasDefenseRequest(0) == false
+    check hasUnfulfilledRequest(0, RequestDefense) == false
     discard addRequest(0, RequestDefense, 1, ivec2(10, 10), ivec2(15, 15), 100)
-    check hasDefenseRequest(0) == true
+    check hasUnfulfilledRequest(0, RequestDefense) == true
 
-  test "hasDefenseRequest returns false when fulfilled":
+  test "hasUnfulfilledRequest returns false for fulfilled defense requests":
     for i in 0 ..< MapRoomObjectsTeams:
       teamCoordination[i] = CoordinationState()
 
     discard addRequest(0, RequestDefense, 1, ivec2(10, 10), ivec2(15, 15), 100)
     teamCoordination[0].requests[0].fulfilled = true
-    check hasDefenseRequest(0) == false
+    check hasUnfulfilledRequest(0, RequestDefense) == false
 
-  test "markDefenseRequestFulfilled marks oldest":
+  test "markRequestFulfilled marks oldest defense request":
     for i in 0 ..< MapRoomObjectsTeams:
       teamCoordination[i] = CoordinationState()
 
     discard addRequest(0, RequestDefense, 1, ivec2(10, 10), ivec2(15, 15), 100)
     discard addRequest(0, RequestDefense, 2, ivec2(20, 20), ivec2(25, 25), 110)
 
-    markDefenseRequestFulfilled(0)
+    markRequestFulfilled(0, RequestDefense)
     check teamCoordination[0].requests[0].fulfilled == true
     check teamCoordination[0].requests[1].fulfilled == false
 
 suite "Coordination - Siege Build Requests":
-  test "hasSiegeBuildRequest returns true when pending":
+  test "hasUnfulfilledRequest returns true for pending siege requests":
     for i in 0 ..< MapRoomObjectsTeams:
       teamCoordination[i] = CoordinationState()
 
-    check hasSiegeBuildRequest(0) == false
+    check hasUnfulfilledRequest(0, RequestSiegeBuild) == false
     discard addRequest(0, RequestSiegeBuild, 1, ivec2(10, 10), ivec2(10, 10), 100)
-    check hasSiegeBuildRequest(0) == true
+    check hasUnfulfilledRequest(0, RequestSiegeBuild) == true
 
-  test "markSiegeBuildRequestFulfilled marks oldest":
+  test "markRequestFulfilled marks oldest siege request":
     for i in 0 ..< MapRoomObjectsTeams:
       teamCoordination[i] = CoordinationState()
 
     discard addRequest(0, RequestSiegeBuild, 1, ivec2(10, 10), ivec2(10, 10), 100)
     discard addRequest(0, RequestSiegeBuild, 2, ivec2(20, 20), ivec2(20, 20), 110)
 
-    markSiegeBuildRequestFulfilled(0)
+    markRequestFulfilled(0, RequestSiegeBuild)
     check teamCoordination[0].requests[0].fulfilled == true
     check teamCoordination[0].requests[1].fulfilled == false
 
@@ -231,13 +231,13 @@ suite "Coordination - Role Integration":
     check teamCoordination[0].requestCount == 1
     check teamCoordination[0].requests[0].kind == RequestSiegeBuild
 
-  test "builderShouldPrioritizeDefense returns true when defense requested":
+  test "hasUnfulfilledRequest returns true when defense requested":
     for i in 0 ..< MapRoomObjectsTeams:
       teamCoordination[i] = CoordinationState()
 
-    check builderShouldPrioritizeDefense(0) == false
+    check hasUnfulfilledRequest(0, RequestDefense) == false
     discard addRequest(0, RequestDefense, 1, ivec2(10, 10), ivec2(15, 15), 100)
-    check builderShouldPrioritizeDefense(0) == true
+    check hasUnfulfilledRequest(0, RequestDefense) == true
 
   test "fighterShouldEscort returns target when protection requested":
     for i in 0 ..< MapRoomObjectsTeams:
@@ -306,13 +306,13 @@ suite "Coordination - Priority System":
     check req != nil
     check req.requesterId == 2  # Closer one wins at same priority
 
-  test "markDefenseRequestFulfilled prefers highest priority":
+  test "markRequestFulfilled prefers highest priority":
     for i in 0 ..< MapRoomObjectsTeams:
       teamCoordination[i] = CoordinationState()
 
     discard addRequest(0, RequestDefense, 1, ivec2(10, 10), ivec2(15, 15), 100, PriorityLow)
     discard addRequest(0, RequestDefense, 2, ivec2(20, 20), ivec2(25, 25), 110, PriorityHigh)
 
-    markDefenseRequestFulfilled(0)
+    markRequestFulfilled(0, RequestDefense)
     check teamCoordination[0].requests[0].fulfilled == false  # Low priority not fulfilled
     check teamCoordination[0].requests[1].fulfilled == true   # High priority fulfilled first

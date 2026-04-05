@@ -35,11 +35,6 @@ proc layWaterPath(env: Environment, fromPos, toPos: IVec2) =
     for y in minY .. maxY:
       env.terrain[fromPos.x][y] = Water
 
-proc moveCogAlongPath(env: Environment, agent: Thing, steps: seq[int]) =
-  ## Move a trade cog along a sequence of direction indices.
-  for dir in steps:
-    env.stepAction(agent.agentId, 1'u8, dir)
-
 suite "Behavior: Trade Cog Gold Delivery Between Docks":
   test "trade cog generates gold when arriving at a second friendly dock":
     let env = makeEmptyEnv()

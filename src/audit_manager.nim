@@ -1,15 +1,4 @@
-## audit_manager.nim - Centralized audit orchestration
-##
-## Provides unified initialization, flushing, and status checking for all
-## audit subsystems. Each audit module registers with this manager.
-##
-## Compile flags: -d:combatAudit, -d:econAudit, -d:techAudit, -d:actionAudit,
-##                -d:tumorAudit, -d:aiAudit
-##
-## Usage:
-##   initAllAudits()           - Call once at startup
-##   flushAllAudits(env, step) - Call at end of each step
-##   isAuditEnabled(kind)      - Check if specific audit is compiled in
+## Centralized orchestration for the optional audit subsystems.
 
 import types
 
@@ -41,31 +30,52 @@ type
     akAi
 
 proc isAuditEnabled*(kind: AuditKind): bool =
-  ## Check if a specific audit type is compiled in.
+  ## Return whether one audit kind is compiled into this build.
   case kind
   of akCombat:
-    when defined(combatAudit): true else: false
+    when defined(combatAudit):
+      true
+    else:
+      false
   of akEcon:
-    when defined(econAudit): true else: false
+    when defined(econAudit):
+      true
+    else:
+      false
   of akTech:
-    when defined(techAudit): true else: false
+    when defined(techAudit):
+      true
+    else:
+      false
   of akAction:
-    when defined(actionAudit): true else: false
+    when defined(actionAudit):
+      true
+    else:
+      false
   of akTumor:
-    when defined(tumorAudit): true else: false
+    when defined(tumorAudit):
+      true
+    else:
+      false
   of akAi:
-    when defined(aiAudit): true else: false
+    when defined(aiAudit):
+      true
+    else:
+      false
+
+proc addEnabledAudit(enabled: var seq[AuditKind], kind: AuditKind) =
+  ## Appends one audit kind when it is compiled into the binary.
+  if isAuditEnabled(kind):
+    enabled.add(kind)
 
 proc getEnabledAudits*(): seq[AuditKind] =
-  ## Return list of all enabled audit types.
+  ## Return all audit kinds compiled into this build.
   result = @[]
   for kind in AuditKind:
-    if isAuditEnabled(kind):
-      result.add(kind)
+    addEnabledAudit(result, kind)
 
 proc initAllAudits*() =
-  ## Initialize all enabled audit subsystems.
-  ## Call once at application startup.
+  ## Initialize every enabled audit subsystem.
   when defined(combatAudit):
     ca.initCombatAudit()
   when defined(econAudit):
@@ -80,8 +90,7 @@ proc initAllAudits*() =
     aia.initAuditLog()
 
 proc flushAllAudits*(env: Environment, step: int) =
-  ## Print/flush reports from all enabled audit subsystems.
-  ## Call at end of each simulation step.
+  ## Flush or print reports for every enabled audit subsystem.
   when defined(combatAudit):
     ca.printCombatReport(step)
   when defined(tumorAudit):
@@ -96,11 +105,9 @@ proc flushAllAudits*(env: Environment, step: int) =
     aia.printAuditSummary(step)
 
 proc resetAllAudits*() =
-  ## Reset audit state for environment reset.
-  ## Call when the simulation resets.
+  ## Reset the audit subsystems that expose explicit reset procedures.
   when defined(econAudit):
     ea.resetEconAudit()
   when defined(techAudit):
     ta.resetTechAudit()
-  # Note: combat_audit, action_audit, tumor_audit, ai_audit
-  # don't have explicit reset procs (they reset on print or use ensure*Init)
+  discard

@@ -1,18 +1,18 @@
-## Shared replay data structures and serialization helpers.
-##
-## Used by both replay_writer.nim (serialization) and
-## replay_analyzer.nim (deserialization).
+## Shared replay serialization helpers.
+## These helpers are used by replay writing and replay analysis.
 
-import std/json
+import
+  std/[json]
 
 const
   ReplayVersion* = 3
+    ## Current replay file format version.
 
 type
   ChangeSeries* = seq[tuple[step: int, value: JsonNode]]
 
 proc serializeChanges*(changes: ChangeSeries): JsonNode =
-  ## Serialize a change list to [[step, value], ...] JSON.
+  ## Serializes a change list to `[[step, value], ...]` JSON.
   result = newJArray()
   for change in changes:
     var pair = newJArray()
@@ -21,7 +21,7 @@ proc serializeChanges*(changes: ChangeSeries): JsonNode =
     result.add(pair)
 
 proc parseChanges*(series: JsonNode): ChangeSeries =
-  ## Parse a [[step, value], ...] JSON array into a change list.
+  ## Parses `[[step, value], ...]` JSON into a change list.
   if series.isNil or series.kind != JArray:
     return @[]
   result = newSeqOfCap[(int, JsonNode)](series.len)
@@ -31,7 +31,7 @@ proc parseChanges*(series: JsonNode): ChangeSeries =
       result.add((step: step, value: entry[1]))
 
 proc lastChangeValue*(series: JsonNode): JsonNode =
-  ## Return the last recorded value from a change series.
+  ## Returns the last recorded value from a change series.
   if series.isNil or series.kind != JArray or series.len == 0:
     return newJNull()
   let last = series[series.len - 1]

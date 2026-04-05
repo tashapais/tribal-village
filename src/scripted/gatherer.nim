@@ -1,65 +1,45 @@
-import ai_build_helpers
-export ai_build_helpers
+import
+  ai_build_helpers, coordination, economy, options
 
-import options
-export options
+export ai_build_helpers, options
+export coordination, economy
 
-import coordination
-export coordination
-
-import economy
-export economy
-
-# Use shared optionGuard template from ai_types
-template gathererGuard(canName, termName: untyped, body: untyped) {.dirty.} =
-  optionGuard(canName, termName, body)
-
-# Game phase resource weights (not balance-tunable, just weighting tables)
 const
-  # Weights: lower value = higher priority (divides the stockpile count)
-  # Order: [Food, Wood, Stone, Gold]
-  # Early game: Food-heavy to sustain villager production, wood for buildings
   EarlyGameWeights = [0.35, 0.6, 1.2, 1.0]
-  # Mid game: Balanced with gold for tech upgrades and military
   MidGameWeights = [0.7, 0.7, 0.85, 0.6]
-  # Late game: Gold-heavy for advanced military, stone for castles
   LateGameWeights = [1.2, 1.0, 0.65, 0.4]
 
-const GathererFleeRadiusConst = GathererFleeRadius  # Local alias for use in guard template
-const GarrisonSeekRadiusConst = GarrisonSeekRadius  # Local alias for use in guard template
-
-gathererGuard(canStartGathererGarrison, shouldTerminateGathererGarrison):
-  not isNil(findNearbyEnemyForFlee(env, agent, GathererFleeRadiusConst)) and
-    not isNil(findNearestGarrisonableBuilding(env, agent.pos, getTeamId(agent), GarrisonSeekRadiusConst))
+optionGuard(canStartGathererGarrison, shouldTerminateGathererGarrison):
+  not isNil(findNearbyEnemyForFlee(env, agent, GathererFleeRadius)) and
+    not isNil(findNearestGarrisonableBuilding(env, agent.pos, getTeamId(agent), GarrisonSeekRadius))
 
 proc optGathererGarrison(controller: Controller, env: Environment, agent: Thing,
                          agentId: int, state: var AgentState): uint16 =
   ## Seek nearest garrisonable building for protection when enemies are nearby.
-  let enemy = findNearbyEnemyForFlee(env, agent, GathererFleeRadiusConst)
+  let enemy = findNearbyEnemyForFlee(env, agent, GathererFleeRadius)
   if isNil(enemy):
     return 0'u16
   let teamId = getTeamId(agent)
-  let building = findNearestGarrisonableBuilding(env, agent.pos, teamId, GarrisonSeekRadiusConst)
+  let building = findNearestGarrisonableBuilding(env, agent.pos, teamId, GarrisonSeekRadius)
   if isNil(building):
     return 0'u16
   requestProtectionFromFighter(env, agent, enemy.pos)
   actOrMove(controller, env, agent, agentId, state, building.pos, 3'u16)
 
-gathererGuard(canStartGathererFlee, shouldTerminateGathererFlee):
-  not isNil(findNearbyEnemyForFlee(env, agent, GathererFleeRadiusConst))
+optionGuard(canStartGathererFlee, shouldTerminateGathererFlee):
+  not isNil(findNearbyEnemyForFlee(env, agent, GathererFleeRadius))
 
 proc optGathererFlee(controller: Controller, env: Environment, agent: Thing,
                      agentId: int, state: var AgentState): uint16 =
-  ## Flee toward home altar when enemies are nearby
-  let enemy = findNearbyEnemyForFlee(env, agent, GathererFleeRadiusConst)
+  ## Flee toward the home altar when enemies are nearby.
+  let enemy = findNearbyEnemyForFlee(env, agent, GathererFleeRadius)
   if isNil(enemy):
     return 0'u16
-  # Request protection from nearby fighters via coordination system
   requestProtectionFromFighter(env, agent, enemy.pos)
-  # Move toward home altar for safety
   fleeToBase(controller, env, agent, agentId, state)
 
 proc findFertileTarget(env: Environment, center: IVec2, radius: int, blocked: IVec2): IVec2 =
+  ## Return the nearest open fertile-adjacent build target.
   let (startX, endX, startY, endY) = radiusBounds(center, radius)
   let cx = center.x.int
   let cy = center.y.int
@@ -86,18 +66,20 @@ proc findFertileTarget(env: Environment, center: IVec2, radius: int, blocked: IV
 const FoodKinds = {Wheat, Stubble, Fish, Bush, Cow, Corpse}
 
 proc gathererStockpileTotal(agent: Thing): int =
+  ## Sum carried stockpile resources for the agent.
   for key, count in agent.inventory.pairs:
     if count > 0 and isStockpileResourceKey(key):
       result += count
 
 proc hasNearbyFood(env: Environment, pos: IVec2, radius: int): bool =
-  ## Optimized: uses spatial index for O(cells) instead of O(all food) iteration
+  ## Return true when any food source exists within the search radius.
   let nearest = findNearestThingOfKindsSpatial(env, pos, FoodKinds, radius)
   not nearest.isNil
 
 proc tryDeliverGoldToMagma(controller: Controller, env: Environment, agent: Thing,
                            agentId: int, state: var AgentState,
                            magmaGlobal: Thing): (bool, uint16) =
+  ## Move the agent toward a magma drop-off for altar-heart delivery.
   let (didKnown, actKnown) = controller.tryMoveToKnownResource(
     env, agent, agentId, state, state.closestMagmaPos, {Magma}, 3'u16)
   if didKnown: return (true, actKnown)
@@ -107,18 +89,21 @@ proc tryDeliverGoldToMagma(controller: Controller, env: Environment, agent: Thin
   (false, 0'u16)
 
 
-proc updateGathererTask*(controller: Controller, env: Environment, agent: Thing,
-                        state: var AgentState) =
+proc updateGathererTask*(
+  controller: Controller,
+  env: Environment,
+  agent: Thing,
+  state: var AgentState
+) =
+  ## Choose the gatherer task that best matches current economy pressure.
   let teamId = getTeamId(agent)
   let agentId = agent.agentId
 
-  # Check for individual gatherer priority override first (highest priority)
   if controller.isGathererPriorityActive(agentId):
     let resource = controller.getGathererPriority(agentId)
     state.gathererTask = stockpileResourceToGathererTask(resource)
     return
 
-  # Check for team-level economy focus (second priority)
   if controller.isTeamEconomyFocusActive(teamId):
     let resource = controller.getTeamEconomyFocus(teamId)
     state.gathererTask = stockpileResourceToGathererTask(resource)
@@ -128,7 +113,6 @@ proc updateGathererTask*(controller: Controller, env: Environment, agent: Thing,
   let altarFound = altarPos.x >= 0
   var task = TaskFood
 
-  # Check economy state for critical resource bottlenecks
   let bottleneck = getCurrentBottleneck(teamId)
   if bottleneck == FoodCritical:
     state.gathererTask = TaskFood
@@ -140,11 +124,10 @@ proc updateGathererTask*(controller: Controller, env: Environment, agent: Thing,
   if altarFound and altarHearts < 10:
     task = TaskHearts
   else:
-    # Determine game phase and select appropriate weights
     let gameProgress = if env.config.maxSteps > 0:
       env.currentStep.float / env.config.maxSteps.float
     else:
-      0.5  # Default to mid-game if maxSteps not set
+      0.5
     let weights = if gameProgress < EarlyGameThreshold:
       EarlyGameWeights
     elif gameProgress < MidGameThreshold:
@@ -152,32 +135,57 @@ proc updateGathererTask*(controller: Controller, env: Environment, agent: Thing,
     elif gameProgress >= LateGameThreshold:
       LateGameWeights
     else:
-      # Between mid and late: blend mid and late weights
-      let blend = (gameProgress - MidGameThreshold) / (LateGameThreshold - MidGameThreshold)
-      [MidGameWeights[0] + blend * (LateGameWeights[0] - MidGameWeights[0]),
-       MidGameWeights[1] + blend * (LateGameWeights[1] - MidGameWeights[1]),
-       MidGameWeights[2] + blend * (LateGameWeights[2] - MidGameWeights[2]),
-       MidGameWeights[3] + blend * (LateGameWeights[3] - MidGameWeights[3])]
+      let blend =
+        (gameProgress - MidGameThreshold) /
+        (LateGameThreshold - MidGameThreshold)
+      [
+        MidGameWeights[0] + blend * (LateGameWeights[0] - MidGameWeights[0]),
+        MidGameWeights[1] + blend * (LateGameWeights[1] - MidGameWeights[1]),
+        MidGameWeights[2] + blend * (LateGameWeights[2] - MidGameWeights[2]),
+        MidGameWeights[3] + blend * (LateGameWeights[3] - MidGameWeights[3])
+      ]
 
-    # Get flow rates from economy system to adjust priorities
-    # If a resource is decreasing fast, reduce its weight (prioritize it)
     let flowRate = getFlowRate(teamId)
     proc flowAdj(rate: float): float =
       if rate < -0.1: rate * 2.0 else: 0.0
-    let flowAdjust = [flowAdj(flowRate.foodPerStep), flowAdj(flowRate.woodPerStep),
-                      flowAdj(flowRate.stonePerStep), flowAdj(flowRate.goldPerStep)]
+    let flowAdjust = [
+      flowAdj(flowRate.foodPerStep),
+      flowAdj(flowRate.woodPerStep),
+      flowAdj(flowRate.stonePerStep),
+      flowAdj(flowRate.goldPerStep)
+    ]
 
-    # Apply weights: lower weighted score = higher priority
-    # Weight < 1.0 makes resource appear more scarce (prioritized)
-    # Flow adjustment makes declining resources appear more scarce
     var ordered: array[5, (GathererTask, float)]
     var orderedLen = 4
-    ordered[0] = (TaskFood, max(0.0, env.stockpileCount(teamId, ResourceFood).float + flowAdjust[0] * 10.0) * weights[0])
-    ordered[1] = (TaskWood, max(0.0, env.stockpileCount(teamId, ResourceWood).float + flowAdjust[1] * 10.0) * weights[1])
-    ordered[2] = (TaskStone, max(0.0, env.stockpileCount(teamId, ResourceStone).float + flowAdjust[2] * 10.0) * weights[2])
-    ordered[3] = (TaskGold, max(0.0, env.stockpileCount(teamId, ResourceGold).float + flowAdjust[3] * 10.0) * weights[3])
+    ordered[0] = (
+      TaskFood,
+      max(
+        0.0,
+        env.stockpileCount(teamId, ResourceFood).float + flowAdjust[0] * 10.0
+      ) * weights[0]
+    )
+    ordered[1] = (
+      TaskWood,
+      max(
+        0.0,
+        env.stockpileCount(teamId, ResourceWood).float + flowAdjust[1] * 10.0
+      ) * weights[1]
+    )
+    ordered[2] = (
+      TaskStone,
+      max(
+        0.0,
+        env.stockpileCount(teamId, ResourceStone).float + flowAdjust[2] * 10.0
+      ) * weights[2]
+    )
+    ordered[3] = (
+      TaskGold,
+      max(
+        0.0,
+        env.stockpileCount(teamId, ResourceGold).float + flowAdjust[3] * 10.0
+      ) * weights[3]
+    )
     if altarFound:
-      # Shift elements right and insert hearts at index 0
       for i in countdown(3, 0):
         ordered[i + 1] = ordered[i]
       ordered[0] = (TaskHearts, altarHearts.float)
@@ -186,19 +194,17 @@ proc updateGathererTask*(controller: Controller, env: Environment, agent: Thing,
     for i in 1 ..< orderedLen:
       if ordered[i][1] < best[1]:
         best = ordered[i]
-    # Anti-oscillation hysteresis: only switch task if difference is significant
     let currentTask = state.gathererTask
     if best[1] <= 0.0:
       task = best[0]
-    elif currentTask != TaskHearts:  # Hearts task handled separately above
+    elif currentTask != TaskHearts:
       var currentScore = float.high
       for i in 0 ..< orderedLen:
         if ordered[i][0] == currentTask:
           currentScore = ordered[i][1]
           break
-      # Only switch if new best is significantly better than current
       if best[1] > currentScore - TaskSwitchHysteresis:
-        task = currentTask  # Keep current task
+        task = currentTask
       else:
         task = best[0]
     else:
@@ -217,10 +223,10 @@ proc gathererTryBuildCamp(controller: Controller, env: Environment, agent: Thing
     nearbyCount, minCount, nearbyKinds)
   if didBuild: buildAct else: 0'u16
 
-gathererGuard(canStartGathererPlantOnFertile, shouldTerminateGathererPlantOnFertile):
+optionGuard(canStartGathererPlantOnFertile, shouldTerminateGathererPlantOnFertile):
   state.gathererTask != TaskHearts and (agent.inventoryWheat > 0 or agent.inventoryWood > 0)
 
-gathererGuard(canStartGathererCarrying, shouldTerminateGathererCarrying):
+optionGuard(canStartGathererCarrying, shouldTerminateGathererCarrying):
   gathererStockpileTotal(agent) > 0
 
 proc optGathererCarrying(controller: Controller, env: Environment, agent: Thing,
@@ -233,7 +239,14 @@ proc optGathererCarrying(controller: Controller, env: Environment, agent: Thing,
     magmaGlobal = findNearestThing(env, agent.pos, Magma, maxDist = int.high)
 
   if agent.inventoryGold > 0 and heartsPriority:
-    let (didDeliver, deliverAct) = tryDeliverGoldToMagma(controller, env, agent, agentId, state, magmaGlobal)
+    let (didDeliver, deliverAct) = tryDeliverGoldToMagma(
+      controller,
+      env,
+      agent,
+      agentId,
+      state,
+      magmaGlobal
+    )
     if didDeliver: return deliverAct
 
   let (didDrop, dropAct) = controller.dropoffCarrying(
@@ -241,11 +254,9 @@ proc optGathererCarrying(controller: Controller, env: Environment, agent: Thing,
     allowFood = true, allowWood = true, allowStone = true, allowGold = not heartsPriority
   )
   if didDrop: return dropAct
-  # No dropoff building found — move directly toward base using A* pathfinding
-  # for clean, purposeful return movement
-  return controller.moveTo(env, agent, agentId, state, basePos)
+  controller.moveTo(env, agent, agentId, state, basePos)
 
-gathererGuard(canStartGathererHearts, shouldTerminateGathererHearts):
+optionGuard(canStartGathererHearts, shouldTerminateGathererHearts):
   state.gathererTask == TaskHearts
 
 proc optGathererHearts(controller: Controller, env: Environment, agent: Thing,
@@ -263,7 +274,14 @@ proc optGathererHearts(controller: Controller, env: Environment, agent: Thing,
     if altarPos.x >= 0:
       return actOrMove(controller, env, agent, agentId, state, altarPos, 3'u16)
   if agent.inventoryGold > 0:
-    let (didDeliver, deliverAct) = tryDeliverGoldToMagma(controller, env, agent, agentId, state, magmaGlobal)
+    let (didDeliver, deliverAct) = tryDeliverGoldToMagma(
+      controller,
+      env,
+      agent,
+      agentId,
+      state,
+      magmaGlobal
+    )
     if didDeliver: return deliverAct
     return controller.moveNextSearch(env, agent, agentId, state)
   if state.closestMagmaPos.x < 0 and isNil(magmaGlobal):
@@ -272,7 +290,7 @@ proc optGathererHearts(controller: Controller, env: Environment, agent: Thing,
   if didGold: return actGold
   return controller.moveNextSearch(env, agent, agentId, state)
 
-gathererGuard(canStartGathererResource, shouldTerminateGathererResource):
+optionGuard(canStartGathererResource, shouldTerminateGathererResource):
   state.gathererTask in {TaskGold, TaskWood, TaskStone}
 
 proc optGathererResource(controller: Controller, env: Environment, agent: Thing,
@@ -308,7 +326,7 @@ proc optGathererResource(controller: Controller, env: Environment, agent: Thing,
   if didGather: return actGather
   return controller.moveNextSearch(env, agent, agentId, state)
 
-gathererGuard(canStartGathererFood, shouldTerminateGathererFood):
+optionGuard(canStartGathererFood, shouldTerminateGathererFood):
   state.gathererTask == TaskFood
 
 proc optGathererFood(controller: Controller, env: Environment, agent: Thing,
@@ -339,7 +357,6 @@ proc optGathererFood(controller: Controller, env: Environment, agent: Thing,
   if not hasNearbyFood(env, agent.pos, 4):
     let fertileRadius = 6
     let fertileCount = countNearbyTerrain(env, basePos, fertileRadius, {Fertile})
-    # Use spatial query instead of O(n) mill scan
     let nearbyMill = findNearestFriendlyThingSpatial(env, basePos, teamId, Mill, fertileRadius)
     let hasMill = not nearbyMill.isNil
     if fertileCount < 6 and not hasMill:
@@ -362,7 +379,6 @@ proc optGathererFood(controller: Controller, env: Environment, agent: Thing,
       if isNil(knownThing) or knownThing.kind notin FoodKinds or isThingFrozen(knownThing, env):
         state.closestFoodPos = ivec2(-1, -1)
       else:
-        # For cows: milk (interact) if healthy and food not critical, kill (attack) otherwise
         let verb = if knownThing.kind == Cow:
           let foodCritical = env.stockpileCount(teamId, ResourceFood) < 3
           let cowHealthy = knownThing.hp * 2 >= knownThing.maxHp
@@ -379,7 +395,6 @@ proc optGathererFood(controller: Controller, env: Environment, agent: Thing,
     if wheat.pos == state.pathBlockedTarget:
       state.cachedThingPos[kind] = ivec2(-1, -1)
       continue
-    # Skip if reserved by another agent
     if isResourceReserved(teamId, wheat.pos, agent.agentId):
       continue
     updateClosestSeen(state, state.basePosition, wheat.pos, state.closestFoodPos)
@@ -390,7 +405,7 @@ proc optGathererFood(controller: Controller, env: Environment, agent: Thing,
   if didHunt: return actHunt
   return controller.moveNextSearch(env, agent, agentId, state)
 
-gathererGuard(canStartGathererIrrigate, shouldTerminateGathererIrrigate):
+optionGuard(canStartGathererIrrigate, shouldTerminateGathererIrrigate):
   agent.inventoryWater > 0
 
 proc optGathererIrrigate(controller: Controller, env: Environment, agent: Thing,
@@ -401,7 +416,7 @@ proc optGathererIrrigate(controller: Controller, env: Environment, agent: Thing,
     return 0'u16
   return actOrMove(controller, env, agent, agentId, state, target, 3'u16)
 
-gathererGuard(canStartGathererScavenge, shouldTerminateGathererScavenge):
+optionGuard(canStartGathererScavenge, shouldTerminateGathererScavenge):
   gathererStockpileTotal(agent) < ResourceCarryCapacity and env.thingsByKind[Skeleton].len > 0
 
 proc optGathererScavenge(controller: Controller, env: Environment, agent: Thing,
@@ -411,63 +426,28 @@ proc optGathererScavenge(controller: Controller, env: Environment, agent: Thing,
     return 0'u16
   return actOrMove(controller, env, agent, agentId, state, skeleton.pos, 3'u16)
 
-gathererGuard(canStartGathererPredatorFlee, shouldTerminateGathererPredatorFlee):
-  not isNil(findNearestPredatorInRadius(env, agent.pos, GathererFleeRadiusConst))
+optionGuard(canStartGathererPredatorFlee, shouldTerminateGathererPredatorFlee):
+  not isNil(findNearestPredatorInRadius(env, agent.pos, GathererFleeRadius))
 
 proc optGathererPredatorFlee(controller: Controller, env: Environment, agent: Thing,
                      agentId: int, state: var AgentState): uint16 =
-  ## Flee away from predators toward friendly structures
-  let predator = findNearestPredatorInRadius(env, agent.pos, GathererFleeRadiusConst)
+  ## Flee away from predators toward friendly structures.
+  let predator = findNearestPredatorInRadius(env, agent.pos, GathererFleeRadius)
   if isNil(predator):
     return 0'u16
   fleeAwayFrom(controller, env, agent, agentId, state, predator.pos)
 
-# Follow: Follow another agent, maintaining proximity (non-combat version)
-
-proc canStartGathererFollow(controller: Controller, env: Environment, agent: Thing,
-                            agentId: int, state: var AgentState): bool =
+optionGuard(canStartGathererFollow, shouldTerminateGathererFollow):
   ## Follow activates when follow mode is enabled and target is valid and alive.
-  if not state.followActive or state.followTargetAgentId < 0:
-    return false
-  if state.followTargetAgentId >= env.agents.len:
-    return false
-  let target = env.agents[state.followTargetAgentId]
-  isAgentAlive(env, target)
-
-proc shouldTerminateGathererFollow(controller: Controller, env: Environment, agent: Thing,
-                                   agentId: int, state: var AgentState): bool =
-  ## Follow terminates when disabled or target dies.
-  if not state.followActive or state.followTargetAgentId < 0:
-    return true
-  if state.followTargetAgentId >= env.agents.len:
-    return true
-  let target = env.agents[state.followTargetAgentId]
-  not isAgentAlive(env, target)
+  hasLiveFollowTarget(env, state)
 
 proc optGathererFollow(controller: Controller, env: Environment, agent: Thing,
                        agentId: int, state: var AgentState): uint16 =
-  ## Follow: stay close to the target agent.
-  ## Unlike fighters, gatherers do not attack while following.
-  ## If target dies, follow is automatically terminated.
-  if not state.followActive or state.followTargetAgentId < 0:
+  ## Stay close to the followed agent without attacking.
+  let target = resolveFollowTarget(env, state)
+  if isNil(target):
     return 0'u16
-  if state.followTargetAgentId >= env.agents.len:
-    state.followActive = false
-    return 0'u16
-  let target = env.agents[state.followTargetAgentId]
-  if not isAgentAlive(env, target):
-    state.followActive = false
-    state.followTargetAgentId = -1
-    return 0'u16
-
-  # Check distance to target
-  let dist = int(chebyshevDist(agent.pos, target.pos))
-  if dist > FollowProximityRadius:
-    # Too far - move toward target
-    return controller.moveTo(env, agent, agentId, state, target.pos)
-
-  # Within range - stay put
-  0'u16
+  maintainFollowProximity(controller, env, agent, agentId, state, target)
 
 proc gathererTaskToPatchKind(task: GathererTask): ResourcePatchKind =
   case task
@@ -475,9 +455,8 @@ proc gathererTaskToPatchKind(task: GathererTask): ResourcePatchKind =
   of TaskGold: PatchGold
   of TaskStone: PatchStone
   of TaskFood: PatchFood
-  of TaskHearts: PatchGold  # Hearts requires gold gathering
+  of TaskHearts: PatchGold
 
-# Idle auto-assignment: redirect idle gatherers to undermanned resource patches
 proc canStartGathererIdleAutoAssign(controller: Controller, env: Environment, agent: Thing,
                                     agentId: int, state: var AgentState): bool =
   ## Activate when the gatherer has been idle (no active task producing movement)
@@ -505,34 +484,34 @@ proc optGathererIdleAutoAssign(controller: Controller, env: Environment, agent: 
   controller.moveTo(env, agent, agentId, state, patchPos)
 
 let GathererOptions* = [
-  TownBellGarrisonOption,  # Highest priority: town bell recall overrides everything
+  TownBellGarrisonOption,
   OptionDef(
     name: "GathererFlee",
     canStart: canStartGathererFlee,
     shouldTerminate: shouldTerminateGathererFlee,
     act: optGathererFlee,
-    interruptible: false  # Flee is not interruptible - survival is priority
+    interruptible: false
   ),
   OptionDef(
     name: "GathererGarrison",
     canStart: canStartGathererGarrison,
     shouldTerminate: shouldTerminateGathererGarrison,
     act: optGathererGarrison,
-    interruptible: false  # Garrison is not interruptible - survival is priority
+    interruptible: false
   ),
   OptionDef(
     name: "GathererPredatorFlee",
     canStart: canStartGathererPredatorFlee,
     shouldTerminate: shouldTerminateGathererPredatorFlee,
     act: optGathererPredatorFlee,
-    interruptible: false  # Flee is not interruptible - survival is priority
+    interruptible: false
   ),
   OptionDef(
     name: "GathererFollow",
     canStart: canStartGathererFollow,
     shouldTerminate: shouldTerminateGathererFollow,
     act: optGathererFollow,
-    interruptible: true  # Follow can be interrupted by higher priority options
+    interruptible: true
   ),
   EmergencyHealOption,
   OptionDef(
@@ -591,7 +570,7 @@ let GathererOptions* = [
     canStart: canStartGathererIdleAutoAssign,
     shouldTerminate: shouldTerminateGathererIdleAutoAssign,
     act: optGathererIdleAutoAssign,
-    interruptible: true  # Can be interrupted by higher-priority gathering tasks
+    interruptible: true
   ),
   FallbackSearchOption
 ]

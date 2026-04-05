@@ -1,30 +1,19 @@
-import std/[algorithm, strutils, tables, sets], vmath, chroma
-import entropy
-import envconfig
-import terrain, items, common_types, biome
-import types, registry
-import spatial_index
-import formations
-import state_dumper
-import arena_alloc
-
-# Import split modules
-import environment_state
-import environment_grid
-import environment_agents
+import
+  std/[algorithm, sets, strutils, tables],
+  chroma, vmath,
+  arena_alloc, biome, common_types, entropy, envconfig, environment_agents,
+  environment_grid, environment_state, formations, items, registry,
+  spatial_index, state_dumper, terrain, types
 
 when defined(techAudit):
   import tech_audit
 when defined(econAudit):
   import econ_audit
-when defined(settlerLog):
-  import settler_events
 when defined(settlerMetrics):
   import settler_metrics
 when defined(audio):
   import audio_events
 
-# Re-export split modules for backwards compatibility
 export environment_state
 export environment_grid
 export environment_agents
@@ -34,66 +23,228 @@ export types, registry
 export spatial_index
 export formations
 export state_dumper
-when defined(settlerLog):
-  export settler_events
 when defined(settlerMetrics):
   export settler_metrics
 
 const
-  ## Default tumor behavior constants
+  ## Store default tumor behavior constants.
   DefaultTumorBranchRange* = 5
   DefaultTumorBranchMinAge* = 2
   DefaultTumorBranchChance* = 0.1
   DefaultTumorAdjacencyDeathChance* = 1.0 / 3.0
 
-  ## Default village spacing constants
+  ## Store default village spacing constants.
   DefaultMinVillageSpacing* = 22
   DefaultSpawnerMinDistance* = 20
   DefaultInitialActiveAgents* = 6
 
-  ## Ramp tile placement constants
-  ## Controls how frequently ramps are placed at elevation transitions
-  ## and their visual width for clearer elevation feedback.
-  RampPlacementSpacing* = 4     # Place ramp every Nth cliff edge (lower = more ramps)
-  RampWidthMin* = 1             # Minimum ramp width in tiles
-  RampWidthMax* = 3             # Maximum ramp width in tiles
+  ## Store ramp placement spacing in cliff-edge tiles.
+  RampPlacementSpacing* = 4
+  ## Store the minimum ramp width in tiles.
+  RampWidthMin* = 1
+  ## Store the maximum ramp width in tiles.
+  RampWidthMax* = 3
 
-  ## Cliff fall damage - agents take damage when dropping elevation without a ramp
-  CliffFallDamage* = 1          # Damage taken per elevation level dropped without ramp
+  ## Store cliff fall damage per dropped elevation level.
+  CliffFallDamage* = 1
 
-  ## Default combat constants
-  DefaultSpearCharges* = 5
-  DefaultArmorPoints* = 5
-  DefaultBreadHealAmount* = 999
-
-  ## Default market tuning (AoE2-style dynamic pricing)
-  ## Prices are in gold per 100 units of resource (scaled for integer math)
-  MarketBasePrice* = 100        # Base price: 100 gold per 100 resources
-  MarketMinPrice* = 20          # Minimum price floor
-  MarketMaxPrice* = 300         # Maximum price ceiling
-  MarketBuyPriceIncrease* = 3   # Price increase per buy transaction
-  MarketSellPriceDecrease* = 3  # Price decrease per sell transaction
-  MarketPriceDecayRate* = 1     # Price drift toward base per decay tick
-  MarketPriceDecayInterval* = 50 # Steps between price decay ticks
+  ## Store the base market price per 100 resources.
+  MarketBasePrice* = 100
+  ## Store the minimum market price floor.
+  MarketMinPrice* = 20
+  ## Store the maximum market price ceiling.
+  MarketMaxPrice* = 300
+  ## Store the market buy-side price increase.
+  MarketBuyPriceIncrease* = 3
+  ## Store the market sell-side price decrease.
+  MarketSellPriceDecrease* = 3
+  ## Store the market drift amount toward the base price.
+  MarketPriceDecayRate* = 1
+  ## Store the number of steps between price decay ticks.
+  MarketPriceDecayInterval* = 50
+  ## Store the cooldown after one market transaction.
   DefaultMarketCooldown* = 2
-  # Legacy constants (kept for compatibility)
-  DefaultMarketSellNumerator* = 1
-  DefaultMarketSellDenominator* = 2
-  DefaultMarketBuyFoodNumerator* = 1
-  DefaultMarketBuyFoodDenominator* = 1
 
-  ## Biome gathering bonus constants
-  BiomeGatherBonusChance* = 0.20  # 20% chance for bonus item in matching biomes
-  DesertOasisBonusChance* = 0.10  # 10% chance for bonus in desert near water
-  DesertOasisRadius* = 3  # Tiles from water to get desert bonus
+  ## Store the matching-biome gather bonus chance.
+  BiomeGatherBonusChance* = 0.20
+  ## Store the desert oasis gather bonus chance.
+  DesertOasisBonusChance* = 0.10
+  ## Store the desert oasis water radius in tiles.
+  DesertOasisRadius* = 3
+  ## Store the minimum tint intensity needed to claim territory.
+  DefaultScoreNeutralThreshold = 0.05'f
+  ## Store whether water tiles contribute to territory scoring.
+  DefaultScoreIncludeWater = false
+  ## Store one full turn in radians for radial particle spreads.
+  FullTurnRadians = 6.28318'f
+  ## Store the minimum direction length treated as non-zero.
+  DirectionLengthEpsilon = 0.001'f
 
-## Error types and FFI error state management are in environment_state.nim
+  TumorBranchRange = DefaultTumorBranchRange
+  TumorBranchMinAge = DefaultTumorBranchMinAge
+  TumorBranchChance = DefaultTumorBranchChance
+  TumorAdjacencyDeathChance = DefaultTumorAdjacencyDeathChance
+  ## Process 1/N tumors per step for branching.
+  TumorProcessStagger* = 4
+
+  UnitMaxHpByClass: array[AgentUnitClass, int] = [
+    VillagerMaxHp,
+    ManAtArmsMaxHp,
+    ArcherMaxHp,
+    ScoutMaxHp,
+    KnightMaxHp,
+    MonkMaxHp,
+    BatteringRamMaxHp,
+    MangonelMaxHp,
+    TrebuchetMaxHp,
+    GoblinMaxHp,
+    BoatMaxHp,
+    TradeCogMaxHp,
+    # Castle unique units follow.
+    SamuraiMaxHp,
+    LongbowmanMaxHp,
+    CataphractMaxHp,
+    WoadRaiderMaxHp,
+    TeutonicKnightMaxHp,
+    HuskarlMaxHp,
+    MamelukeMaxHp,
+    JanissaryMaxHp,
+    KingMaxHp,
+    # Unit upgrade tiers follow.
+    LongSwordsmanMaxHp,
+    ChampionMaxHp,
+    LightCavalryMaxHp,
+    HussarMaxHp,
+    CrossbowmanMaxHp,
+    ArbalesterMaxHp,
+    # Naval combat units follow.
+    GalleyMaxHp,
+    FireShipMaxHp,
+    FishingShipMaxHp,
+    TransportShipMaxHp,
+    DemoShipMaxHp,
+    CannonGalleonMaxHp,
+    # An additional siege unit follows.
+    ScorpionMaxHp,
+    # Stable cavalry upgrades follow.
+    CavalierMaxHp,
+    PaladinMaxHp,
+    # Camel-line upgrades follow.
+    CamelMaxHp,
+    HeavyCamelMaxHp,
+    ImperialCamelMaxHp,
+    # Archery-range units follow.
+    SkirmisherMaxHp,
+    EliteSkirmisherMaxHp,
+    CavalryArcherMaxHp,
+    HeavyCavalryArcherMaxHp,
+    HandCannoneerMaxHp
+  ]
+  UnitAttackDamageByClass: array[AgentUnitClass, int] = [
+    VillagerAttackDamage,
+    ManAtArmsAttackDamage,
+    ArcherAttackDamage,
+    ScoutAttackDamage,
+    KnightAttackDamage,
+    MonkAttackDamage,
+    BatteringRamAttackDamage,
+    MangonelAttackDamage,
+    TrebuchetAttackDamage,
+    GoblinAttackDamage,
+    BoatAttackDamage,
+    TradeCogAttackDamage,
+    # Castle unique units follow.
+    SamuraiAttackDamage,
+    LongbowmanAttackDamage,
+    CataphractAttackDamage,
+    WoadRaiderAttackDamage,
+    TeutonicKnightAttackDamage,
+    HuskarlAttackDamage,
+    MamelukeAttackDamage,
+    JanissaryAttackDamage,
+    KingAttackDamage,
+    # Unit upgrade tiers follow.
+    LongSwordsmanAttackDamage,
+    ChampionAttackDamage,
+    LightCavalryAttackDamage,
+    HussarAttackDamage,
+    CrossbowmanAttackDamage,
+    ArbalesterAttackDamage,
+    # Naval combat units follow.
+    GalleyAttackDamage,
+    FireShipAttackDamage,
+    FishingShipAttackDamage,
+    TransportShipAttackDamage,
+    DemoShipAttackDamage,
+    CannonGalleonAttackDamage,
+    # An additional siege unit follows.
+    ScorpionAttackDamage,
+    # Stable cavalry upgrades follow.
+    CavalierAttackDamage,
+    PaladinAttackDamage,
+    # Camel-line upgrades follow.
+    CamelAttackDamage,
+    HeavyCamelAttackDamage,
+    ImperialCamelAttackDamage,
+    # Archery-range units follow.
+    SkirmisherAttackDamage,
+    EliteSkirmisherAttackDamage,
+    CavalryArcherAttackDamage,
+    HeavyCavalryArcherAttackDamage,
+    HandCannoneerAttackDamage
+  ]
+
+let
+  ## Store the branching offsets checked by tumor spread.
+  TumorBranchOffsets = block:
+    var offsets: seq[IVec2] = @[]
+    for dx in -TumorBranchRange .. TumorBranchRange:
+      for dy in -TumorBranchRange .. TumorBranchRange:
+        if dx == 0 and dy == 0:
+          continue
+        if max(abs(dx), abs(dy)) > TumorBranchRange:
+          continue
+        offsets.add(ivec2(dx, dy))
+    offsets
+
+  ## Store the build menu choices indexed by action argument.
+  BuildChoices*: array[ActionArgumentCount, ItemKey] = block:
+    var choices: array[ActionArgumentCount, ItemKey]
+    for i in 0 ..< choices.len:
+      choices[i] = ItemNone
+    for kind in ThingKind:
+      if not isBuildingKind(kind):
+        continue
+      if not buildingBuildable(kind):
+        continue
+      let buildIndex = BuildingRegistry[kind].buildIndex
+      if buildIndex >= 0 and buildIndex < choices.len:
+        choices[buildIndex] = thingItem($kind)
+    choices[BuildIndexWall] = thingItem("Wall")
+    choices[BuildIndexRoad] = thingItem("Road")
+    choices[BuildIndexDoor] = thingItem("Door")
+    choices
 
 proc clear[T](s: var openarray[T]) =
   ## Zero out a contiguous buffer (arrays/openarrays) without reallocating.
+  if s.len == 0:
+    return
   zeroMem(cast[pointer](s[0].addr), s.len * sizeof(T))
 
-proc hasWaterNearby*(env: Environment, pos: IVec2, radius: int, includeShallow: bool = true): bool =
+proc isValidTeamId(teamId: int): bool {.inline.} =
+  ## Return true when the team ID is within range.
+  teamId >= 0 and teamId < MapRoomObjectsTeams
+
+proc hasActiveMultiplier(multiplier: float32): bool {.inline.} =
+  ## Return true when a multiplier changes the base value.
+  multiplier != 0.0'f and multiplier != 1.0'f
+
+proc hasWaterNearby*(
+  env: Environment,
+  pos: IVec2,
+  radius: int,
+  includeShallow: bool = true
+): bool =
   ## Check if there is water terrain within the given radius of a position.
   ## Includes ShallowWater by default since docks can be placed on either.
   for dx in -radius .. radius:
@@ -106,7 +257,11 @@ proc hasWaterNearby*(env: Environment, pos: IVec2, radius: int, includeShallow: 
           return true
   false
 
-proc getBiomeGatherBonus*(env: Environment, pos: IVec2, itemKey: ItemKey): int =
+proc getBiomeGatherBonus*(
+  env: Environment,
+  pos: IVec2,
+  itemKey: ItemKey
+): int =
   ## Calculate bonus items from biome-specific gathering bonuses.
   ## Returns 0 or 1 based on probability roll using deterministic seed.
   ## Forest: +20% wood, Plains: +20% food, Caves: +20% stone, Snow: +20% gold,
@@ -116,7 +271,7 @@ proc getBiomeGatherBonus*(env: Environment, pos: IVec2, itemKey: ItemKey): int =
 
   let biome = env.biomes[pos.x][pos.y]
 
-  # Check for biome-specific bonus
+  # Check for a biome-specific bonus.
   var bonusChance = 0.0
   case biome
   of BiomeForestType:
@@ -132,8 +287,9 @@ proc getBiomeGatherBonus*(env: Environment, pos: IVec2, itemKey: ItemKey): int =
     if itemKey == ItemGold:
       bonusChance = BiomeGatherBonusChance
   of BiomeDesertType:
-    # Desert gives bonus to all resources if near water (oasis effect)
-    if itemKey == ItemWood or itemKey == ItemWheat or itemKey == ItemStone or itemKey == ItemGold:
+    # Desert gives a bonus to all resources near water.
+    if itemKey == ItemWood or itemKey == ItemWheat or
+        itemKey == ItemStone or itemKey == ItemGold:
       if env.hasWaterNearby(pos, DesertOasisRadius):
         bonusChance = DesertOasisBonusChance
   else:
@@ -142,11 +298,11 @@ proc getBiomeGatherBonus*(env: Environment, pos: IVec2, itemKey: ItemKey): int =
   if bonusChance <= 0.0:
     return 0
 
-  # Use deterministic seed based on position and step for reproducible behavior
-  # Cast to int to avoid int32 overflow and ensure positive seed
+  # Use a deterministic seed based on the position and step.
+  # Cast to int to avoid int32 overflow and to keep the seed positive.
   let seed = abs(int(pos.x) * 31337 + int(pos.y) * 7919 + env.currentStep * 13) + 1
   var r = initRand(seed)
-  # Warm up RNG by discarding first few values to improve distribution
+  # Warm up the RNG by discarding the first few values.
   discard next(r)
   discard next(r)
   if randChance(r, bonusChance):
@@ -262,51 +418,62 @@ proc updateObservations(
 include "colors"
 include "event_log"
 
-const
-  DefaultScoreNeutralThreshold = 0.05'f32
-  DefaultScoreIncludeWater = false
-
 {.push inline.}
-proc updateAgentInventoryObs*(env: Environment, agent: Thing, key: ItemKey) =
-  ## No-op: inventory observations are rebuilt in batch at end of step() for efficiency.
-  ## Kept for API compatibility - call sites remain to enable future observation changes.
-  discard (env, agent, key)
-
-proc updateAgentInventoryObs*(env: Environment, agent: Thing, kind: ItemKind) =
-  ## No-op: type-safe overload using ItemKind enum.
-  ## See updateAgentInventoryObs(env, agent, ItemKey) for rationale.
-  discard (env, agent, kind)
-
 proc stockpileCount*(env: Environment, teamId: int, res: StockpileResource): int =
+  ## Return the stockpile count for one team resource.
   env.teamStockpiles[teamId].counts[res]
 
-proc addToStockpile*(env: Environment, teamId: int, res: StockpileResource, amount: int) =
-  ## Add resources to team stockpile, applying gather rate modifiers
+proc addToStockpile*(
+  env: Environment,
+  teamId: int,
+  res: StockpileResource,
+  amount: int
+) =
+  ## Add resources to the team stockpile with gather-rate modifiers.
   let rawModifier = env.teamModifiers[teamId].gatherRateMultiplier
-  let modifier = if rawModifier == 0.0'f32: 1.0'f32 else: rawModifier  # Default to 1.0 if uninitialized
-  # Apply CivBonus gather rate multiplier
+  let modifier =
+    if hasActiveMultiplier(rawModifier):
+      rawModifier
+    else:
+      1.0'f
   let civGather = env.teamCivBonuses[teamId].gatherRateMultiplier
-  let civModifier = if civGather == 0.0'f32: 1.0'f32 else: civGather
-  let adjustedAmount = int(float32(amount) * modifier * civModifier)
+  let civModifier =
+    if hasActiveMultiplier(civGather):
+      civGather
+    else:
+      1.0'f
+  let adjustedAmount = int(amount.float32 * modifier * civModifier)
   env.teamStockpiles[teamId].counts[res] += adjustedAmount
 
-proc canSpendStockpile*(env: Environment, teamId: int,
-                        costs: openArray[tuple[res: StockpileResource, count: int]]): bool =
+proc canSpendStockpile*(
+  env: Environment,
+  teamId: int,
+  costs: openArray[tuple[res: StockpileResource, count: int]]
+): bool =
+  ## Return true when the team can pay the stockpile costs.
   for cost in costs:
     if env.teamStockpiles[teamId].counts[cost.res] < cost.count:
       return false
   true
 
-proc spendStockpile*(env: Environment, teamId: int,
-                     costs: openArray[tuple[res: StockpileResource, count: int]]): bool =
+proc spendStockpile*(
+  env: Environment,
+  teamId: int,
+  costs: openArray[tuple[res: StockpileResource, count: int]]
+): bool =
+  ## Spend stockpile costs and return whether the payment succeeded.
   if not env.canSpendStockpile(teamId, costs):
     return false
   for cost in costs:
     env.teamStockpiles[teamId].counts[cost.res] -= cost.count
   true
 
-proc canSpendStockpile*(env: Environment, teamId: int,
-                        costs: openArray[tuple[key: ItemKey, count: int]]): bool =
+proc canSpendStockpile*(
+  env: Environment,
+  teamId: int,
+  costs: openArray[tuple[key: ItemKey, count: int]]
+): bool =
+  ## Return true when the team can pay item-key costs from stockpile.
   for cost in costs:
     let res = stockpileResourceForItem(cost.key)
     if res == ResourceNone:
@@ -315,8 +482,12 @@ proc canSpendStockpile*(env: Environment, teamId: int,
       return false
   true
 
-proc spendStockpile*(env: Environment, teamId: int,
-                     costs: openArray[tuple[key: ItemKey, count: int]]): bool =
+proc spendStockpile*(
+  env: Environment,
+  teamId: int,
+  costs: openArray[tuple[key: ItemKey, count: int]]
+): bool =
+  ## Spend item-key costs from stockpile and return whether it succeeded.
   if not env.canSpendStockpile(teamId, costs):
     return false
   for cost in costs:
@@ -324,25 +495,21 @@ proc spendStockpile*(env: Environment, teamId: int,
     env.teamStockpiles[teamId].counts[res] -= cost.count
   true
 
-# ============================================================================
-# AoE2-style Market Trading with Dynamic Prices
-# ============================================================================
-
 proc initMarketPrices*(env: Environment) =
-  ## Initialize market prices to base rates for all teams
+  ## Initialize market prices to the base rates for all teams.
   for teamId in 0 ..< MapRoomObjectsTeams:
     for res in StockpileResource:
       if res != ResourceNone and res != ResourceGold:
         env.teamMarketPrices[teamId].prices[res] = MarketBasePrice
 
 proc getMarketPrice*(env: Environment, teamId: int, res: StockpileResource): int {.inline.} =
-  ## Get current market price for a resource (gold cost per 100 units)
+  ## Return the gold cost per 100 units for a market resource.
   if res == ResourceGold or res == ResourceNone:
     return 0
   env.teamMarketPrices[teamId].prices[res]
 
 proc setMarketPrice*(env: Environment, teamId: int, res: StockpileResource, price: int) =
-  ## Set market price with clamping to min/max bounds
+  ## Set a market price while clamping it to the configured bounds.
   if res == ResourceGold or res == ResourceNone:
     return
   env.teamMarketPrices[teamId].prices[res] = clamp(price, MarketMinPrice, MarketMaxPrice)
@@ -350,63 +517,65 @@ proc setMarketPrice*(env: Environment, teamId: int, res: StockpileResource, pric
 proc marketBuyResource*(env: Environment, teamId: int, res: StockpileResource,
                         amount: int): tuple[goldCost: int, resourceGained: int] =
   ## Buy resources from market using gold from stockpile.
-  ## Returns (gold spent, resources gained). Price increases after buying.
+  ## Return (gold spent, resources gained). Price increases after buying.
   ## Uses scaled integer math: price is gold per 100 units.
   if res == ResourceGold or res == ResourceNone or amount <= 0:
     return (0, 0)
 
   let currentPrice = env.getMarketPrice(teamId, res)
-  # Cost = (amount * price) / 100, rounding up
+  # Round the cost up to the nearest gold.
   let goldCost = (amount * currentPrice + 99) div 100
 
-  # Check if team has enough gold
+  # Stop when the team does not have enough gold.
   if env.teamStockpiles[teamId].counts[ResourceGold] < goldCost:
     return (0, 0)
 
-  # Execute transaction
+  # Apply the transaction.
   env.teamStockpiles[teamId].counts[ResourceGold] -= goldCost
   env.teamStockpiles[teamId].counts[res] += amount
 
-  # Increase price (supply decreased, demand increased)
+  # Increase the price after demand consumes supply.
   env.setMarketPrice(teamId, res, currentPrice + MarketBuyPriceIncrease)
 
   when defined(econAudit):
-    recordMarketBuy(teamId, res, amount, goldCost, env.currentStep)
+    recordFlow(teamId, res, amount, rfsMarketBuy, env.currentStep)
+    recordFlow(teamId, ResourceGold, -goldCost, rfsMarketBuy, env.currentStep)
 
   result = (goldCost, amount)
 
 proc marketSellResource*(env: Environment, teamId: int, res: StockpileResource,
                          amount: int): tuple[resourceSold: int, goldGained: int] =
   ## Sell resources to market for gold.
-  ## Returns (resources sold, gold gained). Price decreases after selling.
+  ## Return (resources sold, gold gained). Price decreases after selling.
   ## Uses scaled integer math: price is gold per 100 units.
   if res == ResourceGold or res == ResourceNone or amount <= 0:
     return (0, 0)
 
   let currentPrice = env.getMarketPrice(teamId, res)
-  # Gain = (amount * price) / 100, rounding down
+  # Round the gold gain down to the nearest whole number.
   let goldGained = (amount * currentPrice) div 100
 
-  # Check if team has enough resources to sell
+  # Stop when the team does not have enough resources.
   if env.teamStockpiles[teamId].counts[res] < amount:
     return (0, 0)
 
-  # Execute transaction
+  # Apply the transaction.
   env.teamStockpiles[teamId].counts[res] -= amount
   env.teamStockpiles[teamId].counts[ResourceGold] += goldGained
 
-  # Decrease price (supply increased)
+  # Decrease the price after supply increases.
   env.setMarketPrice(teamId, res, currentPrice - MarketSellPriceDecrease)
 
   when defined(econAudit):
-    recordMarketSell(teamId, res, amount, goldGained, env.currentStep)
+    recordFlow(teamId, res, -amount, rfsMarketSell, env.currentStep)
+    recordFlow(teamId, ResourceGold, goldGained, rfsMarketSell, env.currentStep)
 
   result = (amount, goldGained)
 
 proc marketSellInventory*(env: Environment, agent: Thing, itemKey: ItemKey):
                           tuple[amountSold: int, goldGained: int] =
   ## Sell all of an item from agent's inventory to their team's market.
-  ## Returns (amount sold, gold gained).
+  ## Return (amount sold, gold gained).
   let teamId = getTeamId(agent)
   let res = stockpileResourceForItem(itemKey)
   if res == ResourceGold or res == ResourceNone or res == ResourceWater:
@@ -417,14 +586,14 @@ proc marketSellInventory*(env: Environment, agent: Thing, itemKey: ItemKey):
     return (0, 0)
 
   let currentPrice = env.getMarketPrice(teamId, res)
-  # Gain = (amount * price) / 100, rounding down
+  # Round the gold gain down to the nearest whole number.
   let goldGained = (amount * currentPrice) div 100
 
   if goldGained > 0:
-    # Clear inventory and add gold to stockpile (no gather rate modifier for market trades)
+    # Move the sold resources into stockpile gold.
     setInv(agent, itemKey, 0)
     env.teamStockpiles[teamId].counts[ResourceGold] += goldGained
-    # Decrease price (supply increased)
+    # Decrease the price after supply increases.
     env.setMarketPrice(teamId, res, currentPrice - MarketSellPriceDecrease)
     return (amount, goldGained)
 
@@ -433,7 +602,7 @@ proc marketSellInventory*(env: Environment, agent: Thing, itemKey: ItemKey):
 proc marketBuyFood*(env: Environment, agent: Thing, goldAmount: int):
                     tuple[goldSpent: int, foodGained: int] =
   ## Buy food with gold from agent's inventory.
-  ## Returns (gold spent, food gained to stockpile).
+  ## Return (gold spent, food gained to stockpile).
   let teamId = getTeamId(agent)
   if goldAmount <= 0:
     return (0, 0)
@@ -443,14 +612,13 @@ proc marketBuyFood*(env: Environment, agent: Thing, goldAmount: int):
     return (0, 0)
 
   let currentPrice = env.getMarketPrice(teamId, ResourceFood)
-  # Food gained = (gold * 100) / price
+  # Convert gold into food at the current market rate.
   let foodGained = (goldAmount * 100) div currentPrice
 
   if foodGained > 0:
     setInv(agent, ItemGold, invGold - goldAmount)
-    # No gather rate modifier for market trades
     env.teamStockpiles[teamId].counts[ResourceFood] += foodGained
-    # Increase price (demand increased)
+    # Increase the price after demand increases.
     env.setMarketPrice(teamId, ResourceFood, currentPrice + MarketBuyPriceIncrease)
     return (goldAmount, foodGained)
 
@@ -471,18 +639,19 @@ proc decayMarketPrices*(env: Environment) =
         env.teamMarketPrices[teamId].prices[res] = min(MarketBasePrice,
           currentPrice + MarketPriceDecayRate)
 
-# ============================================================================
-# AoE2-style Tribute System (resource transfer between teams)
-# ============================================================================
-
-proc tributeResources*(env: Environment, fromTeam, toTeam: int,
-                       resource: StockpileResource, amount: int): int =
+proc tributeResources*(
+  env: Environment,
+  fromTeam,
+  toTeam: int,
+  resource: StockpileResource,
+  amount: int
+): int =
   ## Transfer resources from one team to another, applying a tax.
-  ## Returns the actual amount received after tax (0 if transfer failed).
+  ## Return the actual amount received after tax (0 if transfer fails).
   ## Coinage tech (researched at University) reduces the tax rate.
-  if fromTeam < 0 or fromTeam >= MapRoomObjectsTeams:
+  if not isValidTeamId(fromTeam):
     return 0
-  if toTeam < 0 or toTeam >= MapRoomObjectsTeams:
+  if not isValidTeamId(toTeam):
     return 0
   if fromTeam == toTeam:
     return 0
@@ -491,15 +660,15 @@ proc tributeResources*(env: Environment, fromTeam, toTeam: int,
   if resource == ResourceNone:
     return 0
 
-  # Check if sender has enough resources
+  # Stop when the sender cannot afford the tribute.
   if env.teamStockpiles[fromTeam].counts[resource] < amount:
     return 0
 
-  # Calculate tax rate (Coinage tech reduces it)
-  let taxRate = if env.teamUniversityTechs[fromTeam].researched[TechCoinage]:
-    TributeTaxRate - CoinageTaxReduction
-  else:
-    TributeTaxRate
+  let taxRate =
+    if env.teamUniversityTechs[fromTeam].researched[TechCoinage]:
+      TributeTaxRate - CoinageTaxReduction
+    else:
+      TributeTaxRate
 
   let taxAmount = int(float(amount) * taxRate)
   let received = amount - taxAmount
@@ -507,61 +676,70 @@ proc tributeResources*(env: Environment, fromTeam, toTeam: int,
   if received <= 0:
     return 0
 
-  # Execute the transfer
+  # Apply the transfer after validation and tax.
   env.teamStockpiles[fromTeam].counts[resource] -= amount
   env.teamStockpiles[toTeam].counts[resource] += received
 
-  # Track cumulative tributes for scoring
+  # Track cumulative tribute totals for scoring.
   env.teamTributesSent[fromTeam] += amount
   env.teamTributesReceived[toTeam] += received
 
   received
 
-# ============================================================================
-# Alliance System (symmetric team alliances for shared victory)
-# ============================================================================
-
 proc formAlliance*(env: Environment, teamA, teamB: int) {.inline.} =
   ## Form a symmetric alliance between two teams.
   ## Both teams will consider each other allied.
-  if teamA < 0 or teamA >= MapRoomObjectsTeams: return
-  if teamB < 0 or teamB >= MapRoomObjectsTeams: return
+  if not isValidTeamId(teamA):
+    return
+  if not isValidTeamId(teamB):
+    return
   env.teamAlliances[teamA] = env.teamAlliances[teamA] or getTeamMask(teamB)
   env.teamAlliances[teamB] = env.teamAlliances[teamB] or getTeamMask(teamA)
 
 proc breakAlliance*(env: Environment, teamA, teamB: int) {.inline.} =
   ## Break the alliance between two teams (both directions).
   ## Teams cannot break alliance with themselves.
-  if teamA < 0 or teamA >= MapRoomObjectsTeams: return
-  if teamB < 0 or teamB >= MapRoomObjectsTeams: return
-  if teamA == teamB: return  # Cannot un-ally with self
+  if not isValidTeamId(teamA):
+    return
+  if not isValidTeamId(teamB):
+    return
+  if teamA == teamB:
+    return
   env.teamAlliances[teamA] = env.teamAlliances[teamA] and (not getTeamMask(teamB))
   env.teamAlliances[teamB] = env.teamAlliances[teamB] and (not getTeamMask(teamA))
 
 proc areAllied*(env: Environment, teamA, teamB: int): bool {.inline.} =
-  ## Check if two teams are allied. Teams are always allied with themselves.
-  if teamA < 0 or teamA >= MapRoomObjectsTeams: return false
-  if teamB < 0 or teamB >= MapRoomObjectsTeams: return false
+  ## Check whether two teams are allied. Teams are always allied with themselves.
+  if not isValidTeamId(teamA):
+    return false
+  if not isValidTeamId(teamB):
+    return false
   isTeamInMask(teamB, env.teamAlliances[teamA])
 
 proc getAllies*(env: Environment, teamId: int): TeamMask {.inline.} =
   ## Return the alliance bitmask for a team (includes self).
-  if teamId < 0 or teamId >= MapRoomObjectsTeams: return NoTeamMask
+  if not isValidTeamId(teamId):
+    return NoTeamMask
   env.teamAlliances[teamId]
 
-# ============================================================================
-
-proc spendInventory*(env: Environment, agent: Thing,
-                     costs: openArray[tuple[key: ItemKey, count: int]]): bool =
+proc spendInventory*(
+  env: Environment,
+  agent: Thing,
+  costs: openArray[tuple[key: ItemKey, count: int]]
+): bool =
+  ## Spend item costs directly from an agent inventory.
   if not canSpendInventory(agent, costs):
     return false
   for cost in costs:
     setInv(agent, cost.key, getInv(agent, cost.key) - cost.count)
-    env.updateAgentInventoryObs(agent, cost.key)
   true
 
-proc choosePayment*(env: Environment, agent: Thing,
-                    costs: openArray[tuple[key: ItemKey, count: int]]): PaymentSource =
+proc choosePayment*(
+  env: Environment,
+  agent: Thing,
+  costs: openArray[tuple[key: ItemKey, count: int]]
+): PaymentSource =
+  ## Choose the payment source that can satisfy the item costs.
   if costs.len == 0:
     return PayNone
   if canSpendInventory(agent, costs):
@@ -571,8 +749,13 @@ proc choosePayment*(env: Environment, agent: Thing,
     return PayStockpile
   PayNone
 
-proc spendCosts*(env: Environment, agent: Thing, source: PaymentSource,
-                 costs: openArray[tuple[key: ItemKey, count: int]]): bool =
+proc spendCosts*(
+  env: Environment,
+  agent: Thing,
+  source: PaymentSource,
+  costs: openArray[tuple[key: ItemKey, count: int]]
+): bool =
+  ## Spend costs from the selected payment source.
   case source
   of PayInventory:
     spendInventory(env, agent, costs)
@@ -581,116 +764,8 @@ proc spendCosts*(env: Environment, agent: Thing, source: PaymentSource,
   of PayNone:
     false
 
-const
-  UnitMaxHpByClass: array[AgentUnitClass, int] = [
-    VillagerMaxHp,
-    ManAtArmsMaxHp,
-    ArcherMaxHp,
-    ScoutMaxHp,
-    KnightMaxHp,
-    MonkMaxHp,
-    BatteringRamMaxHp,
-    MangonelMaxHp,
-    TrebuchetMaxHp,
-    GoblinMaxHp,
-    BoatMaxHp,
-    TradeCogMaxHp,
-    # Castle unique units
-    SamuraiMaxHp,
-    LongbowmanMaxHp,
-    CataphractMaxHp,
-    WoadRaiderMaxHp,
-    TeutonicKnightMaxHp,
-    HuskarlMaxHp,
-    MamelukeMaxHp,
-    JanissaryMaxHp,
-    KingMaxHp,
-    # Unit upgrade tiers
-    LongSwordsmanMaxHp,
-    ChampionMaxHp,
-    LightCavalryMaxHp,
-    HussarMaxHp,
-    CrossbowmanMaxHp,
-    ArbalesterMaxHp,
-    # Naval combat units
-    GalleyMaxHp,
-    FireShipMaxHp,
-    FishingShipMaxHp,
-    TransportShipMaxHp,
-    DemoShipMaxHp,
-    CannonGalleonMaxHp,
-    # Additional siege unit
-    ScorpionMaxHp,
-    # Stable cavalry upgrades
-    CavalierMaxHp,
-    PaladinMaxHp,
-    # Camel line
-    CamelMaxHp,
-    HeavyCamelMaxHp,
-    ImperialCamelMaxHp,
-    # Archery Range units
-    SkirmisherMaxHp,
-    EliteSkirmisherMaxHp,
-    CavalryArcherMaxHp,
-    HeavyCavalryArcherMaxHp,
-    HandCannoneerMaxHp
-  ]
-  UnitAttackDamageByClass: array[AgentUnitClass, int] = [
-    VillagerAttackDamage,
-    ManAtArmsAttackDamage,
-    ArcherAttackDamage,
-    ScoutAttackDamage,
-    KnightAttackDamage,
-    MonkAttackDamage,
-    BatteringRamAttackDamage,
-    MangonelAttackDamage,
-    TrebuchetAttackDamage,
-    GoblinAttackDamage,
-    BoatAttackDamage,
-    TradeCogAttackDamage,
-    # Castle unique units
-    SamuraiAttackDamage,
-    LongbowmanAttackDamage,
-    CataphractAttackDamage,
-    WoadRaiderAttackDamage,
-    TeutonicKnightAttackDamage,
-    HuskarlAttackDamage,
-    MamelukeAttackDamage,
-    JanissaryAttackDamage,
-    KingAttackDamage,
-    # Unit upgrade tiers
-    LongSwordsmanAttackDamage,
-    ChampionAttackDamage,
-    LightCavalryAttackDamage,
-    HussarAttackDamage,
-    CrossbowmanAttackDamage,
-    ArbalesterAttackDamage,
-    # Naval combat units
-    GalleyAttackDamage,
-    FireShipAttackDamage,
-    FishingShipAttackDamage,
-    TransportShipAttackDamage,
-    DemoShipAttackDamage,
-    CannonGalleonAttackDamage,
-    # Additional siege unit
-    ScorpionAttackDamage,
-    # Stable cavalry upgrades
-    CavalierAttackDamage,
-    PaladinAttackDamage,
-    # Camel line
-    CamelAttackDamage,
-    HeavyCamelAttackDamage,
-    ImperialCamelAttackDamage,
-    # Archery Range units
-    SkirmisherAttackDamage,
-    EliteSkirmisherAttackDamage,
-    CavalryArcherAttackDamage,
-    HeavyCavalryArcherAttackDamage,
-    HandCannoneerAttackDamage
-  ]
-
 proc defaultStanceForClass*(unitClass: AgentUnitClass): AgentStance =
-  ## Returns the default stance for a unit class.
+  ## Return the default stance for a unit class.
   ## Villagers use NoAttack (won't auto-attack).
   ## Military units use Defensive (attack in range, return to position).
   case unitClass
@@ -709,14 +784,14 @@ proc defaultStanceForClass*(unitClass: AgentUnitClass): AgentStance =
 
 type
   UnitCategory* = enum
-    ## Categories for Blacksmith upgrade application
-    CategoryNone      ## Units that don't receive upgrades (villagers, siege, monks)
-    CategoryInfantry  ## Man-at-arms, Samurai, Woad Raider, Teutonic Knight, Huskarl
-    CategoryCavalry   ## Scout, Knight, Cataphract, Mameluke
-    CategoryArcher    ## Archer, Longbowman, Janissary
+    ## Store Blacksmith upgrade categories for unit classes.
+    CategoryNone      ## Units that do not receive upgrades.
+    CategoryInfantry  ## Infantry units.
+    CategoryCavalry   ## Cavalry units.
+    CategoryArcher    ## Archer units.
 
 const
-  ## Pre-computed lookup table for unit category (eliminates switch/case in hot path)
+  ## Store the precomputed Blacksmith upgrade category for each unit class.
   UnitCategoryByClass*: array[AgentUnitClass, UnitCategory] = [
     CategoryNone,      # UnitVillager
     CategoryInfantry,  # UnitManAtArms
@@ -757,21 +832,19 @@ const
     CategoryCavalry,   # UnitCamel
     CategoryCavalry,   # UnitHeavyCamel
     CategoryCavalry,   # UnitImperialCamel
-    # Archery Range units
     CategoryArcher,    # UnitSkirmisher
     CategoryArcher,    # UnitEliteSkirmisher
-    CategoryArcher,    # UnitCavalryArcher (ranged cavalry, benefits from archer upgrades)
+    CategoryArcher,    # UnitCavalryArcher
     CategoryArcher,    # UnitHeavyCavalryArcher
     CategoryArcher,    # UnitHandCannoneer
   ]
 
 proc getUnitCategory*(unitClass: AgentUnitClass): UnitCategory {.inline.} =
-  ## Returns the Blacksmith upgrade category for a unit class.
-  ## Uses pre-computed lookup table for O(1) access.
+  ## Return the Blacksmith upgrade category for one unit class.
   UnitCategoryByClass[unitClass]
 
 proc getBlacksmithAttackBonus*(env: Environment, teamId: int, unitClass: AgentUnitClass): int {.inline.} =
-  ## Returns the attack bonus from Blacksmith upgrades for a unit.
+  ## Return the attack bonus from Blacksmith upgrades for one unit.
   ## Melee attack (Forging line) applies to infantry + cavalry.
   ## Archer attack (Fletching line) applies to archers.
   ## Bonus varies by tier: level 3 melee gives +2 extra (Blast Furnace).
@@ -787,7 +860,7 @@ proc getBlacksmithAttackBonus*(env: Environment, teamId: int, unitClass: AgentUn
     0
 
 proc getBlacksmithArmorBonus*(env: Environment, teamId: int, unitClass: AgentUnitClass): int {.inline.} =
-  ## Returns the armor bonus from Blacksmith upgrades for a unit.
+  ## Return the armor bonus from Blacksmith upgrades for one unit.
   ## Bonus varies by tier: level 3 gives +2 extra (Plate/Ring upgrades).
   let category = UnitCategoryByClass[unitClass]
   case category
@@ -804,7 +877,7 @@ proc getBlacksmithArmorBonus*(env: Environment, teamId: int, unitClass: AgentUni
     0
 
 proc applyUnitClass*(agent: Thing, unitClass: AgentUnitClass) =
-  ## Apply unit class stats without team modifiers (backwards compatibility)
+  ## Apply unit class stats without team modifiers.
   agent.unitClass = unitClass
   if unitClass != UnitBoat:
     agent.embarkedUnitClass = unitClass
@@ -812,15 +885,15 @@ proc applyUnitClass*(agent: Thing, unitClass: AgentUnitClass) =
   agent.attackDamage = UnitAttackDamageByClass[unitClass]
   agent.hp = agent.maxHp
   agent.stance = defaultStanceForClass(unitClass)
-  # Initialize monk faith
+  # Initialize monk faith.
   if unitClass == UnitMonk:
     agent.faith = MonkMaxFaith
   else:
     agent.faith = 0
 
 proc applyUnitClass*(env: Environment, agent: Thing, unitClass: AgentUnitClass) =
-  ## Apply unit class stats with team modifier bonuses
-  ## Also maintains tankUnits/monkUnits collections for efficient aura iteration
+  ## Apply unit class stats with team modifier bonuses.
+  ## Also maintain tank and monk collections for aura iteration.
   let oldClass = agent.unitClass
   agent.unitClass = unitClass
   if unitClass != UnitBoat:
@@ -841,9 +914,9 @@ proc applyUnitClass*(env: Environment, agent: Thing, unitClass: AgentUnitClass) 
   # Apply CivBonus unit HP and attack multipliers
   if teamId >= 0 and teamId < MapRoomObjectsTeams:
     let civBonus = env.teamCivBonuses[teamId]
-    if civBonus.unitHpMultiplier != 0.0'f32 and civBonus.unitHpMultiplier != 1.0'f32:
+    if hasActiveMultiplier(civBonus.unitHpMultiplier):
       agent.maxHp = max(1, int(float32(agent.maxHp) * civBonus.unitHpMultiplier + 0.5))
-    if civBonus.unitAttackMultiplier != 0.0'f32 and civBonus.unitAttackMultiplier != 1.0'f32:
+    if hasActiveMultiplier(civBonus.unitAttackMultiplier):
       agent.attackDamage = max(0, int(float32(agent.attackDamage) * civBonus.unitAttackMultiplier + 0.5))
   agent.hp = agent.maxHp
   # Initialize monk faith
@@ -857,7 +930,7 @@ proc applyUnitClass*(env: Environment, agent: Thing, unitClass: AgentUnitClass) 
   let wasTank = oldClass in TankAuraUnits
   let isTank = unitClass in TankAuraUnits
   if wasTank and not isTank:
-    # Remove from tankUnits (swap-and-pop for O(1))
+    # Remove from tankUnits with swap-and-pop.
     for i in 0 ..< env.tankUnits.len:
       if env.tankUnits[i] == agent:
         env.tankUnits[i] = env.tankUnits[^1]
@@ -866,11 +939,11 @@ proc applyUnitClass*(env: Environment, agent: Thing, unitClass: AgentUnitClass) 
   elif isTank and not wasTank:
     env.tankUnits.add(agent)
 
-  # Monk units: have heal auras
+  # Monk units have heal auras.
   let wasMonk = oldClass == UnitMonk
   let isMonk = unitClass == UnitMonk
   if wasMonk and not isMonk:
-    # Remove from monkUnits (swap-and-pop for O(1))
+    # Remove from monkUnits with swap-and-pop.
     for i in 0 ..< env.monkUnits.len:
       if env.monkUnits[i] == agent:
         env.monkUnits[i] = env.monkUnits[^1]
@@ -879,13 +952,13 @@ proc applyUnitClass*(env: Environment, agent: Thing, unitClass: AgentUnitClass) 
   elif isMonk and not wasMonk:
     env.monkUnits.add(agent)
 
-  # Villager tracking for town bell garrison optimization
+  # Villager tracking supports town bell garrison optimization.
   let wasVillager = oldClass == UnitVillager
   let isVillager = unitClass == UnitVillager
-  # teamId already computed above at function start
+  # teamId was already computed above at function start.
   if teamId >= 0 and teamId < MapRoomObjectsTeams:
     if wasVillager and not isVillager:
-      # Remove from teamVillagers (swap-and-pop for O(1))
+      # Remove from teamVillagers with swap-and-pop.
       for i in 0 ..< env.teamVillagers[teamId].len:
         if env.teamVillagers[teamId][i] == agent:
           env.teamVillagers[teamId][i] = env.teamVillagers[teamId][^1]
@@ -895,6 +968,7 @@ proc applyUnitClass*(env: Environment, agent: Thing, unitClass: AgentUnitClass) 
       env.teamVillagers[teamId].add(agent)
 
 proc embarkAgent*(env: Environment, agent: Thing) =
+  ## Convert an embarked land unit into its boat transport state.
   if agent.unitClass in {UnitBoat, UnitTradeCog, UnitGalley, UnitFireShip,
                           UnitFishingShip, UnitTransportShip, UnitDemoShip, UnitCannonGalleon}:
     return
@@ -902,8 +976,10 @@ proc embarkAgent*(env: Environment, agent: Thing) =
   applyUnitClass(env, agent, UnitBoat)
 
 proc disembarkAgent*(env: Environment, agent: Thing) =
+  ## Restore a transported land unit from its boat transport state.
   if agent.unitClass == UnitTradeCog:
-    return  # Trade Cogs never disembark
+    # Trade cogs never disembark.
+    return
   if agent.unitClass != UnitBoat:
     return
   var target = agent.embarkedUnitClass
@@ -912,7 +988,7 @@ proc disembarkAgent*(env: Environment, agent: Thing) =
   applyUnitClass(env, agent, target)
 {.pop.}
 
-# Forward declaration - implementation in tint.nim (included below)
+## Ensure tint colors are up to date before tint-dependent queries.
 proc ensureTintColors*(env: Environment) {.inline.}
 
 proc scoreTerritory*(env: Environment): TerritoryScore =
@@ -928,7 +1004,7 @@ proc scoreTerritory*(env: Environment): TerritoryScore =
       if tint.intensity < DefaultScoreNeutralThreshold:
         inc score.neutralTiles
         continue
-      var bestDist = 1.0e9'f32
+      var bestDist = 1.0e9'f
       var bestTeam = -1
       # Clippy as NPC team
       let drc = tint.r - ClippyTint.r
@@ -952,7 +1028,6 @@ proc scoreTerritory*(env: Environment): TerritoryScore =
       inc score.scoredTiles
   score
 
-
 proc setRallyPoint*(building: Thing, pos: IVec2) =
   ## Set a building's rally point. Trained units will auto-move here after spawning.
   building.rallyPoint = pos
@@ -962,7 +1037,7 @@ proc clearRallyPoint*(building: Thing) =
   building.rallyPoint = ivec2(-1, -1)
 
 proc hasRallyPoint*(building: Thing): bool =
-  ## Check if a building has an active rally point.
+  ## Check whether a building has an active rally point.
   building.rallyPoint.x >= 0 and building.rallyPoint.y >= 0
 
 proc rebuildObservationsForAgent(env: Environment, agentId: int, agent: Thing) {.inline.} =
@@ -1056,28 +1131,24 @@ proc ensureObservations*(env: Environment) {.inline.} =
 
   env.observationsInitialized = true
 
-## Grid queries (getThing, getBackgroundThing, isEmpty, hasDoor, etc.) are in environment_grid.nim
-## Elevation/movement checks (canTraverseElevation, willCauseCliffFallDamage, isBuildableTerrain, isSpawnable) are in environment_grid.nim
-
 proc canPlace*(env: Environment, pos: IVec2, checkFrozen: bool = true): bool {.inline.} =
-  ## Check if a building can be placed at the position.
-  ## NOTE: Remains here because it uses isTileFrozen from colors.nim (included file).
+  ## Check whether a building can be placed at the position.
+  ## This remains here because it uses isTileFrozen from colors.nim.
   isValidPos(pos) and env.isEmpty(pos) and isNil(env.getBackgroundThing(pos)) and
     (not checkFrozen or not isTileFrozen(pos, env)) and isBuildableTerrain(env.terrain[pos.x][pos.y])
 
 proc canPlaceDock*(env: Environment, pos: IVec2, checkFrozen: bool = true): bool {.inline.} =
-  ## Check if a dock can be placed at the position (must be water or shallow water).
-  ## NOTE: Remains here because it uses isTileFrozen from colors.nim (included file).
+  ## Check whether a dock can be placed at the position.
+  ## This remains here because it uses isTileFrozen from colors.nim.
   isValidPos(pos) and env.isEmpty(pos) and isNil(env.getBackgroundThing(pos)) and
     (not checkFrozen or not isTileFrozen(pos, env)) and env.terrain[pos.x][pos.y] in WaterTerrain
 
-## resetTileColor is in environment_grid.nim
-
-# Build craft recipes after registry is available.
 CraftRecipes = initCraftRecipesBase()
 appendBuildingRecipes(CraftRecipes)
 
 proc stockpileCapacityLeft(agent: Thing): int {.inline.} =
+  ## Return the remaining stockpile-resource capacity.
+  ## This only counts stockpile-resource items already carried.
   var total = 0
   for invKey, invCount in agent.inventory.pairs:
     if invCount > 0 and isStockpileResourceKey(invKey):
@@ -1085,10 +1156,10 @@ proc stockpileCapacityLeft(agent: Thing): int {.inline.} =
   max(0, ResourceCarryCapacity - total)
 
 proc getVillagerCarryCapacity*(env: Environment, teamId: int): int
-  ## Forward declaration - defined in economy tech section below
+  ## Defined in the economy tech section below.
 
 proc stockpileCapacityLeftWithTech(env: Environment, agent: Thing): int {.inline.} =
-  ## Stockpile capacity respecting Wheelbarrow/Hand Cart tech bonuses for villagers.
+  ## Return stockpile capacity with villager tech bonuses applied.
   let capacity = if agent.unitClass == UnitVillager:
     env.getVillagerCarryCapacity(getTeamId(agent))
   else:
@@ -1100,6 +1171,8 @@ proc stockpileCapacityLeftWithTech(env: Environment, agent: Thing): int {.inline
   max(0, capacity - total)
 
 proc giveItem(env: Environment, agent: Thing, key: ItemKey, count: int = 1): bool =
+  ## Add items to an agent inventory.
+  ## Return false when the full transfer would exceed capacity.
   if count <= 0:
     return false
   if isStockpileResourceKey(key):
@@ -1109,10 +1182,16 @@ proc giveItem(env: Environment, agent: Thing, key: ItemKey, count: int = 1): boo
     if getInv(agent, key) + count > MapObjectAgentMaxInventory:
       return false
   setInv(agent, key, getInv(agent, key) + count)
-  env.updateAgentInventoryObs(agent, key)
   true
 
-proc useStorageBuilding(env: Environment, agent: Thing, storage: Thing, allowed: openArray[ItemKey]): bool =
+proc useStorageBuilding(
+  env: Environment,
+  agent: Thing,
+  storage: Thing,
+  allowed: openArray[ItemKey]
+): bool =
+  ## Transfer items between an agent and a storage building.
+  ## Return true when either side moves at least one item.
   if storage.inventory.len > 0:
     var storedKey = ItemNone
     var storedCount = 0
@@ -1137,7 +1216,6 @@ proc useStorageBuilding(env: Environment, agent: Thing, storage: Thing, allowed:
       let moved = min(agentCount, storageSpace)
       setInv(agent, storedKey, agentCount - moved)
       setInv(storage, storedKey, storedCount + moved)
-      env.updateAgentInventoryObs(agent, storedKey)
       return true
     let capacityLeft =
       if isStockpileResourceKey(storedKey):
@@ -1150,7 +1228,6 @@ proc useStorageBuilding(env: Environment, agent: Thing, storage: Thing, allowed:
         setInv(agent, storedKey, agentCount + moved)
         let remaining = storedCount - moved
         setInv(storage, storedKey, remaining)
-        env.updateAgentInventoryObs(agent, storedKey)
         return true
     return false
 
@@ -1171,11 +1248,15 @@ proc useStorageBuilding(env: Environment, agent: Thing, storage: Thing, allowed:
     let moved = min(choiceCount, storage.barrelCapacity)
     setInv(agent, choiceKey, choiceCount - moved)
     setInv(storage, choiceKey, moved)
-    env.updateAgentInventoryObs(agent, choiceKey)
     return true
   false
 
-proc useDropoffBuilding(env: Environment, agent: Thing, allowed: set[StockpileResource]): bool =
+proc useDropoffBuilding(
+  env: Environment,
+  agent: Thing,
+  allowed: set[StockpileResource]
+): bool =
+  ## Deposit matching resources from the agent into the team stockpile.
   let teamId = getTeamId(agent)
   var depositKeys: seq[ItemKey] = @[]
   for key, count in agent.inventory.pairs:
@@ -1195,15 +1276,21 @@ proc useDropoffBuilding(env: Environment, agent: Thing, allowed: set[StockpileRe
     let stockpileRes = stockpileResourceForItem(key)
     env.addToStockpile(teamId, stockpileRes, count)
     when defined(eventLog):
-      logResourceDeposited(teamId, $stockpileRes, count, env.currentStep)
+      logEvent(ecDeposit, teamId, "Deposited " & $count & " " & $stockpileRes, env.currentStep)
     when defined(econAudit):
-      recordDeposit(teamId, stockpileRes, count, env.currentStep)
+      recordFlow(teamId, stockpileRes, count, rfsDeposit, env.currentStep)
     setInv(agent, key, 0)
-    env.updateAgentInventoryObs(agent, key)
   true
 
-proc tryTrainUnit(env: Environment, agent: Thing, building: Thing, unitClass: AgentUnitClass,
-                  costs: openArray[tuple[res: StockpileResource, count: int]], cooldown: int): bool =
+proc tryTrainUnit(
+  env: Environment,
+  agent: Thing,
+  building: Thing,
+  unitClass: AgentUnitClass,
+  costs: openArray[tuple[res: StockpileResource, count: int]],
+  cooldown: int
+): bool =
+  ## Convert a villager into a unit immediately after paying the stockpile cost.
   if agent.unitClass != UnitVillager:
     return false
   let teamId = getTeamId(agent)
@@ -1230,10 +1317,10 @@ proc queueTrainUnit*(env: Environment, building: Thing, teamId: int,
     return false
   # Apply CivBonus food cost multiplier to training costs
   var adjustedCosts: seq[tuple[res: StockpileResource, count: int]] = @[]
-  if teamId >= 0 and teamId < MapRoomObjectsTeams:
+  if isValidTeamId(teamId):
     let civBonus = env.teamCivBonuses[teamId]
-    let applyFood = civBonus.foodCostMultiplier != 0.0'f32 and civBonus.foodCostMultiplier != 1.0'f32
-    let applyWood = civBonus.woodCostMultiplier != 0.0'f32 and civBonus.woodCostMultiplier != 1.0'f32
+    let applyFood = hasActiveMultiplier(civBonus.foodCostMultiplier)
+    let applyWood = hasActiveMultiplier(civBonus.woodCostMultiplier)
     if applyFood or applyWood:
       for cost in costs:
         var c = cost
@@ -1249,7 +1336,8 @@ proc queueTrainUnit*(env: Environment, building: Thing, teamId: int,
     if not env.spendStockpile(teamId, costs):
       return false
   when defined(econAudit):
-    recordTrainingCost(teamId, costs, env.currentStep)
+    for cost in costs:
+      recordFlow(teamId, cost.res, -cost.count, rfsUnitTraining, env.currentStep)
   let trainTime = unitTrainTime(unitClass)
   building.productionQueue.entries.add(ProductionQueueEntry(
     unitClass: unitClass,
@@ -1261,11 +1349,11 @@ proc queueTrainUnit*(env: Environment, building: Thing, teamId: int,
 proc refundTrainCosts(env: Environment, building: Thing) =
   ## Refund training costs for a cancelled queue entry, applying CivBonus multipliers.
   let teamId = building.teamId
-  if teamId >= 0 and teamId < MapRoomObjectsTeams:
+  if isValidTeamId(teamId):
     let baseCosts = buildingTrainCosts(building.kind)
     let civBonus = env.teamCivBonuses[teamId]
-    let applyFood = civBonus.foodCostMultiplier != 0.0'f32 and civBonus.foodCostMultiplier != 1.0'f32
-    let applyWood = civBonus.woodCostMultiplier != 0.0'f32 and civBonus.woodCostMultiplier != 1.0'f32
+    let applyFood = hasActiveMultiplier(civBonus.foodCostMultiplier)
+    let applyWood = hasActiveMultiplier(civBonus.woodCostMultiplier)
     for cost in baseCosts:
       var refundAmount = cost.count
       if applyFood and cost.res == ResourceFood:
@@ -1274,7 +1362,8 @@ proc refundTrainCosts(env: Environment, building: Thing) =
         refundAmount = max(1, int(float32(cost.count) * civBonus.woodCostMultiplier + 0.5))
       env.teamStockpiles[teamId].counts[cost.res] += refundAmount
     when defined(econAudit):
-      recordRefund(teamId, baseCosts, env.currentStep)
+      for cost in baseCosts:
+        recordFlow(teamId, cost.res, cost.count, rfsRefund, env.currentStep)
 
 proc cancelLastQueued*(env: Environment, building: Thing): bool =
   ## Cancel the last unit in the production queue, refunding resources.
@@ -1284,20 +1373,12 @@ proc cancelLastQueued*(env: Environment, building: Thing): bool =
   env.refundTrainCosts(building)
   true
 
-proc cancelQueueEntry*(env: Environment, building: Thing, index: int): bool =
-  ## Cancel a specific unit in the production queue by index, refunding resources.
-  if index < 0 or index >= building.productionQueue.entries.len:
-    return false
-  building.productionQueue.entries.delete(index)
-  env.refundTrainCosts(building)
-  true
-
 proc effectiveTrainUnit*(env: Environment, buildingKind: ThingKind, teamId: int): AgentUnitClass =
-  ## Returns the effective unit class trained by a building, considering upgrades.
+  ## Return the effective unit class trained by a building, considering upgrades.
   ## For example, if LongSwordsman upgrade is researched, Barracks trains LongSwordsman instead of ManAtArms.
   ## "Unlock" upgrades (Knight, Skirmisher, CavalryArcher) switch the building's production line.
   let baseUnit = buildingTrainUnit(buildingKind, teamId)
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  if not isValidTeamId(teamId):
     return baseUnit
   # Check upgrade chain for the base unit
   case baseUnit
@@ -1338,7 +1419,7 @@ proc effectiveTrainUnit*(env: Environment, buildingKind: ThingKind, teamId: int)
 proc tryBatchQueueTrain*(env: Environment, building: Thing, teamId: int,
                          count: int): int =
   ## Queue multiple units for training (batch/shift-click).
-  ## Returns the number of units actually queued.
+  ## Return the number of units actually queued.
   if not buildingHasTrain(building.kind):
     return 0
   let unitClass = env.effectiveTrainUnit(building.kind, teamId)
@@ -1369,7 +1450,7 @@ proc processProductionQueue*(building: Thing) =
 
 proc getNextBlacksmithUpgrade*(env: Environment, teamId: int): BlacksmithUpgradeType =
   ## Find the next upgrade to research (lowest level across all types).
-  ## Returns the upgrade type with the lowest current level.
+  ## Return the upgrade type with the lowest current level.
   var minLevel = BlacksmithUpgradeMaxLevel + 1
   result = UpgradeMeleeAttack  # Default
   for upgradeType in BlacksmithUpgradeType:
@@ -1381,36 +1462,36 @@ proc getNextBlacksmithUpgrade*(env: Environment, teamId: int): BlacksmithUpgrade
 proc tryResearchBlacksmithUpgrade*(env: Environment, agent: Thing, building: Thing): bool =
   ## Attempt to research the next Blacksmith upgrade for the team.
   ## Costs: Food + Gold, increasing by level.
-  ## Returns true if research was successful.
+  ## Return true if research was successful.
   if agent.unitClass != UnitVillager:
     return false
   let teamId = getTeamId(agent)
   if building.teamId != teamId:
     return false
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  if not isValidTeamId(teamId):
     return false
 
-  # Find the next upgrade to research
+  # Find the next upgrade to research.
   let upgradeType = env.getNextBlacksmithUpgrade(teamId)
   let currentLevel = env.teamBlacksmithUpgrades[teamId].levels[upgradeType]
 
-  # Check if already at max level
+  # Stop when the upgrade is already at max level.
   if currentLevel >= BlacksmithUpgradeMaxLevel:
     return false
 
-  # Calculate cost based on current level (level 0->1: base cost, 1->2: 2x, 2->3: 3x)
+  # Calculate cost based on current level (level 0->1: base cost, 1->2: 2x, 2->3: 3x).
   let costMultiplier = currentLevel + 1
   let foodCost = BlacksmithUpgradeFoodCost * costMultiplier
   let goldCost = BlacksmithUpgradeGoldCost * costMultiplier
 
-  # Check and spend resources
+  # Spend the research cost.
   let costs = [(ResourceFood, foodCost), (ResourceGold, goldCost)]
   if not env.spendStockpile(teamId, costs):
     return false
   when defined(econAudit):
     recordResearchCost(teamId, costs, env.currentStep)
 
-  # Apply the upgrade
+  # Apply the upgrade.
   env.teamBlacksmithUpgrades[teamId].levels[upgradeType] = currentLevel + 1
   building.cooldown = 5  # Short cooldown after research
   when defined(eventLog):
@@ -1421,7 +1502,7 @@ proc tryResearchBlacksmithUpgrade*(env: Environment, agent: Thing, building: Thi
 
 proc getNextUniversityTech(env: Environment, teamId: int): UniversityTechType =
   ## Find the next unresearched University tech.
-  ## Returns techs in order: Ballistics first (most impactful for ranged combat).
+  ## Return techs in order: Ballistics first (most impactful for ranged combat).
   for techType in UniversityTechType:
     if not env.teamUniversityTechs[teamId].researched[techType]:
       return techType
@@ -1429,44 +1510,44 @@ proc getNextUniversityTech(env: Environment, teamId: int): UniversityTechType =
   TechBallistics
 
 proc hasUniversityTech*(env: Environment, teamId: int, tech: UniversityTechType): bool {.inline.} =
-  ## Check if a team has researched a specific University tech.
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  ## Check whether a team has researched a specific University tech.
+  if not isValidTeamId(teamId):
     return false
   env.teamUniversityTechs[teamId].researched[tech]
 
 proc tryResearchUniversityTech*(env: Environment, agent: Thing, building: Thing): bool =
   ## Attempt to research the next University tech for the team.
   ## Costs: Food + Gold + Wood (varies by tech).
-  ## Returns true if research was successful.
+  ## Return true if research was successful.
   if agent.unitClass != UnitVillager:
     return false
   let teamId = getTeamId(agent)
   if building.teamId != teamId:
     return false
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  if not isValidTeamId(teamId):
     return false
 
-  # Find the next tech to research
+  # Find the next tech to research.
   let techType = env.getNextUniversityTech(teamId)
 
-  # Check if already researched
+  # Stop when the tech is already researched.
   if env.teamUniversityTechs[teamId].researched[techType]:
     return false
 
-  # Calculate cost - costs increase for later techs
+  # Calculate the cost. Costs increase for later techs.
   let techIndex = ord(techType) + 1
   let foodCost = UniversityTechFoodCost * techIndex
   let goldCost = UniversityTechGoldCost * techIndex
   let woodCost = UniversityTechWoodCost * techIndex
 
-  # Check and spend resources
+  # Spend the research cost.
   let costs = [(ResourceFood, foodCost), (ResourceGold, goldCost), (ResourceWood, woodCost)]
   if not env.spendStockpile(teamId, costs):
     return false
   when defined(econAudit):
     recordResearchCost(teamId, costs, env.currentStep)
 
-  # Apply the tech
+  # Apply the tech.
   env.teamUniversityTechs[teamId].researched[techType] = true
   building.cooldown = 8  # Longer cooldown for tech research
   when defined(eventLog):
@@ -1476,7 +1557,7 @@ proc tryResearchUniversityTech*(env: Environment, agent: Thing, building: Thing)
   true
 
 proc castleTechsForTeam*(teamId: int): (CastleTechType, CastleTechType) =
-  ## Returns the (Castle Age, Imperial Age) tech pair for a team.
+  ## Return the (Castle Age, Imperial Age) tech pair for a team.
   ## Each team has exactly 2 unique techs, interleaved in the enum.
   let base = CastleTechType(teamId * 2)
   let imperial = CastleTechType(teamId * 2 + 1)
@@ -1490,12 +1571,12 @@ proc getNextCastleTech(env: Environment, teamId: int): CastleTechType =
     return castleAge
   if not env.teamCastleTechs[teamId].researched[imperialAge]:
     return imperialAge
-  # Both researched, return castle age (no-op in caller)
+  # Both are researched, so return the Castle Age tech.
   castleAge
 
 proc hasCastleTech*(env: Environment, teamId: int, tech: CastleTechType): bool {.inline.} =
-  ## Check if a team has researched a specific Castle unique tech.
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  ## Check whether a team has researched a specific Castle unique tech.
+  if not isValidTeamId(teamId):
     return false
   env.teamCastleTechs[teamId].researched[tech]
 
@@ -1637,36 +1718,36 @@ proc applyCastleTechBonuses*(env: Environment, teamId: int, tech: CastleTechType
 proc tryResearchCastleTech*(env: Environment, agent: Thing, building: Thing): bool =
   ## Attempt to research the next Castle unique tech for the team.
   ## Each team has 2 unique techs (Castle Age first, then Imperial Age).
-  ## Only villagers can research. Returns true if research was successful.
+  ## Only villagers can research. Return true if research was successful.
   if agent.unitClass != UnitVillager:
     return false
   let teamId = getTeamId(agent)
   if building.teamId != teamId:
     return false
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  if not isValidTeamId(teamId):
     return false
 
-  # Find the next tech to research for this team
+  # Find the next tech to research for this team.
   let techType = env.getNextCastleTech(teamId)
 
-  # Check if already researched
+  # Stop when the tech is already researched.
   if env.teamCastleTechs[teamId].researched[techType]:
     return false
 
-  # Determine cost based on whether this is Castle Age or Imperial Age tech
+  # Determine the cost based on whether this is a Castle or Imperial Age tech.
   let (castleAge, _) = castleTechsForTeam(teamId)
   let isImperial = techType != castleAge
   let foodCost = if isImperial: CastleTechImperialFoodCost else: CastleTechFoodCost
   let goldCost = if isImperial: CastleTechImperialGoldCost else: CastleTechGoldCost
 
-  # Check and spend resources
+  # Spend the research cost.
   let costs = [(ResourceFood, foodCost), (ResourceGold, goldCost)]
   if not env.spendStockpile(teamId, costs):
     return false
   when defined(econAudit):
     recordResearchCost(teamId, costs, env.currentStep)
 
-  # Apply the tech
+  # Apply the tech.
   env.teamCastleTechs[teamId].researched[techType] = true
   env.applyCastleTechBonuses(teamId, techType)
   building.cooldown = 10  # Longer cooldown for unique tech research
@@ -1676,8 +1757,6 @@ proc tryResearchCastleTech*(env: Environment, agent: Thing, building: Thing): bo
     logCastleTech(teamId, techType, isImperial, env.currentStep)
   true
 
-# ---- UI-driven research (no villager required) ----
-
 proc uiResearchBlacksmithUpgrade*(env: Environment, building: Thing,
                                   upgradeType: BlacksmithUpgradeType): bool =
   ## UI-driven research: directly research a specific Blacksmith upgrade.
@@ -1685,7 +1764,7 @@ proc uiResearchBlacksmithUpgrade*(env: Environment, building: Thing,
   if building.kind != Blacksmith:
     return false
   let teamId = building.teamId
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  if not isValidTeamId(teamId):
     return false
 
   let currentLevel = env.teamBlacksmithUpgrades[teamId].levels[upgradeType]
@@ -1716,7 +1795,7 @@ proc uiResearchUniversityTech*(env: Environment, building: Thing,
   if building.kind != University:
     return false
   let teamId = building.teamId
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  if not isValidTeamId(teamId):
     return false
 
   if env.teamUniversityTechs[teamId].researched[techType]:
@@ -1746,7 +1825,7 @@ proc uiResearchCastleTech*(env: Environment, building: Thing, techIndex: int): b
   if building.kind != Castle:
     return false
   let teamId = building.teamId
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  if not isValidTeamId(teamId):
     return false
 
   let (castleAge, imperialAge) = castleTechsForTeam(teamId)
@@ -1784,7 +1863,7 @@ proc uiQueueTrainUnit*(env: Environment, building: Thing, unitClass: AgentUnitCl
   if not buildingHasTrain(building.kind):
     return 0
   let teamId = building.teamId
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  if not isValidTeamId(teamId):
     return 0
   let costs = buildingTrainCosts(building.kind)
   var queued = 0
@@ -1794,60 +1873,58 @@ proc uiQueueTrainUnit*(env: Environment, building: Thing, unitClass: AgentUnitCl
     inc queued
   queued
 
-# ---- Unit upgrade / promotion chain logic (AoE2-style) ----
-
 proc upgradePrerequisite*(upgrade: UnitUpgradeType): UnitUpgradeType =
-  ## Returns the prerequisite upgrade that must be researched first.
-  ## Tier-2 upgrades have no prerequisite (returns themselves).
+  ## Return the prerequisite upgrade that must be researched first.
+  ## Tier-2 upgrades have no prerequisite and return themselves.
   ## Tier-3 upgrades require the corresponding tier-2.
   case upgrade
-  of UpgradeLongSwordsman: UpgradeLongSwordsman  # no prereq
+  of UpgradeLongSwordsman: UpgradeLongSwordsman  # No prerequisite.
   of UpgradeChampion: UpgradeLongSwordsman
-  of UpgradeLightCavalry: UpgradeLightCavalry    # no prereq
+  of UpgradeLightCavalry: UpgradeLightCavalry    # No prerequisite.
   of UpgradeHussar: UpgradeLightCavalry
-  of UpgradeKnight: UpgradeKnight                # no prereq (unlocks Knight line)
-  of UpgradeCrossbowman: UpgradeCrossbowman      # no prereq
+  of UpgradeKnight: UpgradeKnight                # No prerequisite. Unlocks the Knight line.
+  of UpgradeCrossbowman: UpgradeCrossbowman      # No prerequisite.
   of UpgradeArbalester: UpgradeCrossbowman
-  of UpgradeSkirmisher: UpgradeSkirmisher         # no prereq (unlocks Skirmisher line)
-  of UpgradeEliteSkirmisher: UpgradeSkirmisher    # requires Skirmisher unlock
-  of UpgradeCavalryArcher: UpgradeCavalryArcher   # no prereq (unlocks CavalryArcher line)
-  of UpgradeHeavyCavalryArcher: UpgradeCavalryArcher  # requires CavalryArcher unlock
+  of UpgradeSkirmisher: UpgradeSkirmisher        # No prerequisite. Unlocks the Skirmisher line.
+  of UpgradeEliteSkirmisher: UpgradeSkirmisher   # Requires the Skirmisher unlock.
+  of UpgradeCavalryArcher: UpgradeCavalryArcher  # No prerequisite. Unlocks the CavalryArcher line.
+  of UpgradeHeavyCavalryArcher: UpgradeCavalryArcher  # Requires the CavalryArcher unlock.
 
 proc upgradeSourceUnit*(upgrade: UnitUpgradeType): AgentUnitClass =
-  ## Returns the unit class that gets upgraded.
-  ## For "unlock" upgrades (Knight, Skirmisher, CavalryArcher), source = target
-  ## since these unlock new production lines rather than converting existing units.
+  ## Return the unit class that gets upgraded.
+  ## For unlock upgrades, source equals target.
+  ## Those upgrades unlock new production lines instead of converting units.
   case upgrade
   of UpgradeLongSwordsman: UnitManAtArms
   of UpgradeChampion: UnitLongSwordsman
   of UpgradeLightCavalry: UnitScout
   of UpgradeHussar: UnitLightCavalry
-  of UpgradeKnight: UnitKnight              # unlock (no conversion)
+  of UpgradeKnight: UnitKnight              # Unlock only. No conversion.
   of UpgradeCrossbowman: UnitArcher
   of UpgradeArbalester: UnitCrossbowman
-  of UpgradeSkirmisher: UnitSkirmisher      # unlock (no conversion)
+  of UpgradeSkirmisher: UnitSkirmisher      # Unlock only. No conversion.
   of UpgradeEliteSkirmisher: UnitSkirmisher
-  of UpgradeCavalryArcher: UnitCavalryArcher  # unlock (no conversion)
+  of UpgradeCavalryArcher: UnitCavalryArcher  # Unlock only. No conversion.
   of UpgradeHeavyCavalryArcher: UnitCavalryArcher
 
 proc upgradeTargetUnit*(upgrade: UnitUpgradeType): AgentUnitClass =
-  ## Returns the unit class that results from the upgrade.
+  ## Return the unit class that results from the upgrade.
   ## For "unlock" upgrades, source = target (no existing units to convert).
   case upgrade
   of UpgradeLongSwordsman: UnitLongSwordsman
   of UpgradeChampion: UnitChampion
   of UpgradeLightCavalry: UnitLightCavalry
   of UpgradeHussar: UnitHussar
-  of UpgradeKnight: UnitKnight              # unlock
+  of UpgradeKnight: UnitKnight              # Unlock.
   of UpgradeCrossbowman: UnitCrossbowman
   of UpgradeArbalester: UnitArbalester
-  of UpgradeSkirmisher: UnitSkirmisher      # unlock
+  of UpgradeSkirmisher: UnitSkirmisher      # Unlock.
   of UpgradeEliteSkirmisher: UnitEliteSkirmisher
-  of UpgradeCavalryArcher: UnitCavalryArcher  # unlock
+  of UpgradeCavalryArcher: UnitCavalryArcher  # Unlock.
   of UpgradeHeavyCavalryArcher: UnitHeavyCavalryArcher
 
 proc upgradeBuilding*(upgrade: UnitUpgradeType): ThingKind =
-  ## Returns the building where this upgrade is researched.
+  ## Return the building where this upgrade is researched.
   case upgrade
   of UpgradeLongSwordsman, UpgradeChampion: Barracks
   of UpgradeLightCavalry, UpgradeHussar, UpgradeKnight: Stable
@@ -1856,7 +1933,7 @@ proc upgradeBuilding*(upgrade: UnitUpgradeType): ThingKind =
      UpgradeCavalryArcher, UpgradeHeavyCavalryArcher: ArcheryRange
 
 proc upgradeCosts*(upgrade: UnitUpgradeType): seq[tuple[res: StockpileResource, count: int]] =
-  ## Returns the resource costs for an upgrade.
+  ## Return the resource costs for an upgrade.
   case upgrade
   of UpgradeLongSwordsman, UpgradeLightCavalry, UpgradeCrossbowman,
      UpgradeKnight, UpgradeSkirmisher, UpgradeCavalryArcher,
@@ -1868,14 +1945,14 @@ proc upgradeCosts*(upgrade: UnitUpgradeType): seq[tuple[res: StockpileResource, 
       (res: ResourceGold, count: UnitUpgradeTier3GoldCost)]
 
 proc hasUnitUpgrade*(env: Environment, teamId: int, upgrade: UnitUpgradeType): bool {.inline.} =
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  if not isValidTeamId(teamId):
     return false
   env.teamUnitUpgrades[teamId].researched[upgrade]
 
 proc getNextUnitUpgrade*(env: Environment, teamId: int, buildingKind: ThingKind): UnitUpgradeType =
   ## Find the next available upgrade for the given building type.
   ## Rotates starting point by teamId to distribute across upgrade lines,
-  ## so different teams research different upgrades (Knight vs LightCavalry, etc.)
+  ## so different teams research different upgrades (for example, Knight vs LightCavalry).
   let allUpgrades = block:
     var upgrades: seq[UnitUpgradeType]
     for u in UnitUpgradeType:
@@ -1883,18 +1960,18 @@ proc getNextUnitUpgrade*(env: Environment, teamId: int, buildingKind: ThingKind)
         upgrades.add(u)
     upgrades
   if allUpgrades.len == 0:
-    return UpgradeLongSwordsman  # fallback
+    return UpgradeLongSwordsman  # Fallback.
   let startIdx = teamId mod allUpgrades.len
   for offset in 0 ..< allUpgrades.len:
     let upgrade = allUpgrades[(startIdx + offset) mod allUpgrades.len]
     if env.teamUnitUpgrades[teamId].researched[upgrade]:
       continue
-    # Check prerequisite
+    # Check the prerequisite.
     let prereq = upgradePrerequisite(upgrade)
     if prereq != upgrade and not env.teamUnitUpgrades[teamId].researched[prereq]:
       continue
     return upgrade
-  # No upgrades available; return first of this building type (caller checks researched)
+  # No upgrade is available, so return the first one for this building type.
   allUpgrades[0]
 
 proc upgradeExistingUnits*(env: Environment, teamId: int, fromClass: AgentUnitClass, toClass: AgentUnitClass) =
@@ -1930,34 +2007,34 @@ proc upgradeExistingUnits*(env: Environment, teamId: int, fromClass: AgentUnitCl
 
 proc tryResearchUnitUpgrade*(env: Environment, agent: Thing, building: Thing): bool =
   ## Attempt to research the next unit upgrade at a military building.
-  ## Only villagers can research. Returns true if research was successful.
+  ## Only villagers can research. Return true if research was successful.
   if agent.unitClass != UnitVillager:
     return false
   let teamId = getTeamId(agent)
   if building.teamId != teamId:
     return false
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  if not isValidTeamId(teamId):
     return false
 
   let upgrade = env.getNextUnitUpgrade(teamId, building.kind)
 
-  # Check if already researched
+  # Stop when the upgrade is already researched.
   if env.teamUnitUpgrades[teamId].researched[upgrade]:
     return false
 
-  # Check prerequisite
+  # Check the prerequisite.
   let prereq = upgradePrerequisite(upgrade)
   if prereq != upgrade and not env.teamUnitUpgrades[teamId].researched[prereq]:
     return false
 
-  # Check and spend resources
+  # Spend the research cost.
   let costs = upgradeCosts(upgrade)
   if not env.spendStockpile(teamId, costs):
     return false
   when defined(econAudit):
     recordResearchCost(teamId, costs, env.currentStep)
 
-  # Apply the upgrade
+  # Apply the upgrade.
   env.teamUnitUpgrades[teamId].researched[upgrade] = true
   env.upgradeExistingUnits(teamId, upgradeSourceUnit(upgrade), upgradeTargetUnit(upgrade))
   building.cooldown = 8
@@ -1967,18 +2044,16 @@ proc tryResearchUnitUpgrade*(env: Environment, agent: Thing, building: Thing): b
     logUnitUpgrade(teamId, upgrade, env.currentStep, costs)
   true
 
-# ---- Economy tech logic (AoE2-style) ----
-
 proc hasEconomyTech*(env: Environment, teamId: int, tech: EconomyTechType): bool {.inline.} =
-  ## Check if a team has researched a specific economy tech.
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  ## Check whether a team has researched a specific economy tech.
+  if not isValidTeamId(teamId):
     return false
   env.teamEconomyTechs[teamId].researched[tech]
 
 proc getWoodGatherBonus*(env: Environment, teamId: int): int =
   ## Calculate total wood gathering bonus percentage from Lumber Camp techs.
-  ## Returns bonus as integer percentage (e.g., 50 = +50%).
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  ## Return bonus as an integer percentage (for example, 50 = +50%).
+  if not isValidTeamId(teamId):
     return 0
   var bonus = 0
   if env.teamEconomyTechs[teamId].researched[TechDoubleBitAxe]:
@@ -1991,7 +2066,7 @@ proc getWoodGatherBonus*(env: Environment, teamId: int): int =
 
 proc getGoldGatherBonus*(env: Environment, teamId: int): int =
   ## Calculate total gold gathering bonus percentage from Mining Camp techs.
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  if not isValidTeamId(teamId):
     return 0
   var bonus = 0
   if env.teamEconomyTechs[teamId].researched[TechGoldMining]:
@@ -2002,7 +2077,7 @@ proc getGoldGatherBonus*(env: Environment, teamId: int): int =
 
 proc getStoneGatherBonus*(env: Environment, teamId: int): int =
   ## Calculate total stone gathering bonus percentage from Mining Camp techs.
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  if not isValidTeamId(teamId):
     return 0
   var bonus = 0
   if env.teamEconomyTechs[teamId].researched[TechStoneMining]:
@@ -2014,7 +2089,7 @@ proc getStoneGatherBonus*(env: Environment, teamId: int): int =
 proc getVillagerCarryCapacity*(env: Environment, teamId: int): int =
   ## Calculate villager carry capacity including economy tech bonuses.
   ## Base capacity is ResourceCarryCapacity (5).
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  if not isValidTeamId(teamId):
     return ResourceCarryCapacity
   var capacity = ResourceCarryCapacity
   if env.teamEconomyTechs[teamId].researched[TechWheelbarrow]:
@@ -2025,8 +2100,8 @@ proc getVillagerCarryCapacity*(env: Environment, teamId: int): int =
 
 proc getVillagerSpeedBonus*(env: Environment, teamId: int): int =
   ## Calculate villager speed bonus percentage from economy techs.
-  ## Returns bonus as integer percentage (e.g., 20 = +20%).
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  ## Return bonus as an integer percentage (for example, 20 = +20%).
+  if not isValidTeamId(teamId):
     return 0
   var bonus = 0
   if env.teamEconomyTechs[teamId].researched[TechWheelbarrow]:
@@ -2037,8 +2112,8 @@ proc getVillagerSpeedBonus*(env: Environment, teamId: int): int =
 
 proc getFarmFoodBonus*(env: Environment, teamId: int): int =
   ## Calculate total farm food bonus from Mill techs.
-  ## Returns bonus food amount per farm.
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  ## Return the bonus food amount per farm.
+  if not isValidTeamId(teamId):
     return 0
   var bonus = 0
   if env.teamEconomyTechs[teamId].researched[TechHorseCollar]:
@@ -2050,13 +2125,13 @@ proc getFarmFoodBonus*(env: Environment, teamId: int): int =
   bonus
 
 proc canAutoReseed*(env: Environment, teamId: int): bool {.inline.} =
-  ## Check if team has researched Horse Collar (enables auto-reseed).
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  ## Check whether the team has researched Horse Collar (enables auto-reseed).
+  if not isValidTeamId(teamId):
     return false
   env.teamEconomyTechs[teamId].researched[TechHorseCollar]
 
 proc economyTechBuilding*(tech: EconomyTechType): ThingKind =
-  ## Returns the building where this economy tech is researched.
+  ## Return the building where this economy tech is researched.
   case tech
   of TechWheelbarrow, TechHandCart: TownCenter
   of TechDoubleBitAxe, TechBowSaw, TechTwoManSaw: LumberCamp
@@ -2064,7 +2139,7 @@ proc economyTechBuilding*(tech: EconomyTechType): ThingKind =
   of TechHorseCollar, TechHeavyPlow, TechCropRotation: Mill
 
 proc economyTechCost*(tech: EconomyTechType): seq[tuple[res: StockpileResource, count: int]] =
-  ## Returns the resource costs for an economy tech.
+  ## Return the resource costs for an economy tech.
   case tech
   of TechWheelbarrow:
     @[(res: ResourceFood, count: WheelbarrowFoodCost),
@@ -2104,8 +2179,8 @@ proc economyTechCost*(tech: EconomyTechType): seq[tuple[res: StockpileResource, 
       (res: ResourceWood, count: CropRotationWoodCost)]
 
 proc economyTechPrerequisite*(tech: EconomyTechType): EconomyTechType =
-  ## Returns the prerequisite tech that must be researched first.
-  ## Returns itself if no prerequisite.
+  ## Return the prerequisite tech that must be researched first.
+  ## Return the input tech itself when there is no prerequisite.
   case tech
   of TechWheelbarrow: TechWheelbarrow  # no prereq
   of TechHandCart: TechWheelbarrow
@@ -2122,57 +2197,57 @@ proc economyTechPrerequisite*(tech: EconomyTechType): EconomyTechType =
 
 proc getNextEconomyTech*(env: Environment, teamId: int, buildingKind: ThingKind): EconomyTechType =
   ## Find the next available economy tech for the given building type.
-  ## Returns the first unresearched tech whose prerequisites are met.
+  ## Return the first unresearched tech whose prerequisites are met.
   for tech in EconomyTechType:
     if economyTechBuilding(tech) != buildingKind:
       continue
     if env.teamEconomyTechs[teamId].researched[tech]:
       continue
-    # Check prerequisite
+    # Check the prerequisite.
     let prereq = economyTechPrerequisite(tech)
     if prereq != tech and not env.teamEconomyTechs[teamId].researched[prereq]:
       continue
     return tech
-  # No techs available; return first of this building type (caller checks researched)
+  # No tech is available, so return the first one for this building type.
   for tech in EconomyTechType:
     if economyTechBuilding(tech) == buildingKind:
       return tech
-  TechWheelbarrow  # fallback
+  TechWheelbarrow  # Fallback.
 
 proc tryResearchEconomyTech*(env: Environment, agent: Thing, building: Thing): bool =
   ## Attempt to research the next economy tech at a building.
-  ## Only villagers can research. Returns true if research was successful.
+  ## Only villagers can research. Return true if research was successful.
   if agent.unitClass != UnitVillager:
     return false
   let teamId = getTeamId(agent)
   if building.teamId != teamId:
     return false
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  if not isValidTeamId(teamId):
     return false
 
   let tech = env.getNextEconomyTech(teamId, building.kind)
 
-  # Verify this tech belongs to this building type (handles fallback case)
+  # Verify that this tech belongs to this building type.
   if economyTechBuilding(tech) != building.kind:
     return false
 
-  # Check if already researched
+  # Stop when the tech is already researched.
   if env.teamEconomyTechs[teamId].researched[tech]:
     return false
 
-  # Check prerequisite
+  # Check the prerequisite.
   let prereq = economyTechPrerequisite(tech)
   if prereq != tech and not env.teamEconomyTechs[teamId].researched[prereq]:
     return false
 
-  # Check and spend resources
+  # Spend the research cost.
   let costs = economyTechCost(tech)
   if not env.spendStockpile(teamId, costs):
     return false
   when defined(econAudit):
     recordResearchCost(teamId, costs, env.currentStep)
 
-  # Apply the tech
+  # Apply the tech.
   env.teamEconomyTechs[teamId].researched[tech] = true
   building.cooldown = 6
   when defined(eventLog):
@@ -2187,7 +2262,7 @@ proc addFarmToMillQueue*(env: Environment, mill: Thing, farmPos: IVec2) =
   let dist = max(abs(farmPos.x - mill.pos.x), abs(farmPos.y - mill.pos.y))
   if dist > buildingFertileRadius(Mill):
     return
-  # Avoid duplicates
+  # Avoid duplicates.
   for pos in mill.farmQueue:
     if pos == farmPos:
       return
@@ -2195,7 +2270,7 @@ proc addFarmToMillQueue*(env: Environment, mill: Thing, farmPos: IVec2) =
 
 proc findNearestMill*(env: Environment, pos: IVec2, teamId: int): Thing =
   ## Find the nearest mill belonging to the given team within range.
-  ## Returns nil if no mill found.
+  ## Return nil when no mill is found.
   var bestMill: Thing = nil
   var bestDist = high(int32)
   for mill in env.thingsByKind[Mill]:
@@ -2208,26 +2283,33 @@ proc findNearestMill*(env: Environment, pos: IVec2, teamId: int): Thing =
   bestMill
 
 proc tryAutoReseedFarm*(env: Environment, mill: Thing): bool
-  ## Forward declaration - implemented after placement include
+  ## Implemented after the placement include to keep placement helpers available.
 
 proc queueFarmReseed*(env: Environment, mill: Thing, teamId: int): bool =
   ## Queue a farm reseed at the Mill (pre-pay wood cost).
-  ## Returns true if successful.
+  ## Return true if the reseed is queued.
   if mill.kind != Mill:
     return false
   if mill.teamId != teamId:
     return false
-  # Check and spend cost
+  # Spend the reseed cost.
   let costs = @[(res: ResourceWood, count: FarmReseedWoodCost)]
   if FarmReseedWoodCost > 0 and not env.spendStockpile(teamId, costs):
     return false
   when defined(econAudit):
     if FarmReseedWoodCost > 0:
-      recordFarmReseed(teamId, FarmReseedWoodCost, env.currentStep)
+      recordFlow(teamId, ResourceWood, -FarmReseedWoodCost, rfsFarmReseed, env.currentStep)
   mill.queuedFarmReseeds += 1
   true
 
-proc tryCraftAtStation(env: Environment, agent: Thing, station: CraftStation, stationThing: Thing): bool =
+proc tryCraftAtStation(
+  env: Environment,
+  agent: Thing,
+  station: CraftStation,
+  stationThing: Thing
+): bool =
+  ## Try to apply the first matching craft recipe at the station.
+  ## Return true when one recipe consumes inputs and grants outputs.
   for recipe in CraftRecipes:
     if recipe.station != station:
       continue
@@ -2276,10 +2358,8 @@ proc tryCraftAtStation(env: Environment, agent: Thing, station: CraftStation, st
       if useStockpile and isStockpileResourceKey(input.key):
         continue
       setInv(agent, input.key, getInv(agent, input.key) - input.count)
-      env.updateAgentInventoryObs(agent, input.key)
     for output in recipe.outputs:
       setInv(agent, output.key, getInv(agent, output.key) + output.count)
-      env.updateAgentInventoryObs(agent, output.key)
     if not isNil(stationThing):
       stationThing.cooldown = 0
     return true
@@ -2295,35 +2375,35 @@ proc tryAutoReseedFarm*(env: Environment, mill: Thing): bool =
   if mill.farmQueue.len == 0:
     return false
   let teamId = mill.teamId
-  if teamId < 0 or teamId >= MapRoomObjectsTeams:
+  if not isValidTeamId(teamId):
     return false
   if not env.canAutoReseed(teamId):
     return false
 
   let farmPos = mill.farmQueue[0]
 
-  # Validate position and terrain BEFORE spending resources or dequeuing
+  # Validate the position and terrain before spending resources or dequeuing.
   if not isValidPos(farmPos):
-    mill.farmQueue.delete(0)  # Invalid pos can be discarded
+    mill.farmQueue.delete(0)  # Invalid positions can be discarded.
     return false
   if env.grid[farmPos.x][farmPos.y] != nil:
-    return false  # Something blocking; keep in queue, may clear later
+    return false  # Something is blocking it, so keep it queued.
   let terrain = env.terrain[farmPos.x][farmPos.y]
   if terrain != Fertile:
-    return false  # Terrain not yet fertile; keep in queue, Mill will refresh
+    return false  # Keep it queued until the terrain becomes fertile.
 
-  # Check cost (only after validation passes)
+  # Check the cost only after validation passes.
   let costs = @[(res: ResourceWood, count: FarmReseedWoodCost)]
   if FarmReseedWoodCost > 0 and not env.spendStockpile(teamId, costs):
     return false
   when defined(econAudit):
     if FarmReseedWoodCost > 0:
-      recordFarmReseed(teamId, FarmReseedWoodCost, env.currentStep)
+      recordFlow(teamId, ResourceWood, -FarmReseedWoodCost, rfsFarmReseed, env.currentStep)
 
-  # Remove from queue only on successful reseed
+  # Remove the farm only after the reseed succeeds.
   mill.farmQueue.delete(0)
 
-  # Create the farm (wheat crop)
+  # Create the replacement wheat crop.
   let crop = Thing(kind: Wheat, pos: farmPos)
   crop.inventory = emptyInventory()
   let farmFood = ResourceNodeInitial + env.getFarmFoodBonus(teamId)
@@ -2332,6 +2412,8 @@ proc tryAutoReseedFarm*(env: Environment, mill: Thing): bool =
   true
 
 proc grantItem(env: Environment, agent: Thing, key: ItemKey, amount: int = 1): bool =
+  ## Grant up to `amount` copies of an item to the agent inventory.
+  ## Return false when the inventory fills before all items are added.
   if amount <= 0:
     return true
   for _ in 0 ..< amount:
@@ -2339,25 +2421,27 @@ proc grantItem(env: Environment, agent: Thing, key: ItemKey, amount: int = 1): b
       return false
   true
 
-# Forward declaration for sparkle effect (defined later in file)
+## Spawn gather sparkle particles around a gather event.
 proc spawnGatherSparkle*(env: Environment, pos: IVec2)
 
 proc harvestTree(env: Environment, agent: Thing, tree: Thing): bool =
+  ## Harvest one tree, grant wood, and replace it with a stump.
+  ## Applies biome and economy-tech bonuses before spawning the effect.
   if not env.grantItem(agent, ItemWood):
     return false
   env.rewards[agent.agentId] += env.config.woodReward
-  # Apply biome gathering bonus
+  # Apply the biome gathering bonus.
   let bonus = env.getBiomeGatherBonus(tree.pos, ItemWood)
   if bonus > 0:
     discard env.grantItem(agent, ItemWood, bonus)
-  # Apply lumber camp tech gathering bonus (AoE2-style)
+  # Apply the lumber camp tech gathering bonus.
   let teamId = getTeamId(agent)
   let techBonusPct = env.getWoodGatherBonus(teamId)
   if techBonusPct > 0 and (env.currentStep mod (100 div max(1, techBonusPct))) == 0:
     discard env.grantItem(agent, ItemWood)
   when defined(eventLog):
-    logResourceGathered(teamId, "Wood", 1 + bonus, env.currentStep)
-  let stumpPos = tree.pos  # Capture before pool release
+    logEvent(ecGather, teamId, "Gathered " & $(1 + bonus) & " Wood", env.currentStep)
+  let stumpPos = tree.pos  # Capture before pool release.
   removeThing(env, tree)
   let stump = acquireThing(env, Stump)
   stump.pos = stumpPos
@@ -2366,7 +2450,7 @@ proc harvestTree(env: Environment, agent: Thing, tree: Thing): bool =
   if remaining > 0:
     setInv(stump, ItemWood, remaining)
   env.add(stump)
-  # Spawn sparkle effect at harvest location
+  # Spawn the sparkle effect at the harvest location.
   env.spawnGatherSparkle(stumpPos)
   true
 
@@ -2386,18 +2470,22 @@ proc spawnRagdoll*(env: Environment, pos: IVec2, direction: Vec2,
   ## The body tumbles away from the damage source direction.
   if not isValidPos(pos):
     return
-  # Normalize direction and apply initial speed
+  # Normalize the direction and apply initial speed.
   let dirLen = sqrt(direction.x * direction.x + direction.y * direction.y)
-  let normalizedDir = if dirLen > 0.001:
+  let normalizedDir = if dirLen > DirectionLengthEpsilon:
     vec2(direction.x / dirLen, direction.y / dirLen)
   else:
-    vec2(1.0, 0.0)  # Default direction if no attacker
-  # Add randomness to angular velocity (clockwise or counter-clockwise)
-  let angularDir = if (pos.x + pos.y) mod 2 == 0: 1.0'f32 else: -1.0'f32
+    vec2(1.0, 0.0)  # Default direction if there is no attacker.
+  # Add randomness to angular velocity.
+  let angularDir =
+    if (pos.x + pos.y) mod 2 == 0:
+      1.0'f
+    else:
+      -1.0'f
   env.ragdolls.add(RagdollBody(
     pos: vec2(pos.x.float32, pos.y.float32),
     velocity: vec2(normalizedDir.x * RagdollInitialSpeed, normalizedDir.y * RagdollInitialSpeed),
-    angle: 0.0'f32,
+    angle: 0.0'f,
     angularVel: RagdollAngularSpeed * angularDir,
     unitClass: unitClass,
     teamId: teamId,
@@ -2409,17 +2497,19 @@ proc spawnDebris*(env: Environment, pos: IVec2, buildingKind: ThingKind) =
   ## Particles spread outward and fade over DebrisLifetime frames.
   if not isValidPos(pos):
     return
-  # Determine debris kind based on building type
+  # Determine the debris kind based on the building type.
   let debrisKind = case buildingKind
     of Wall, Outpost, GuardTower, Castle, Monastery, University: DebrisStone
-    of TownCenter, House, Barracks, ArcheryRange, Stable, Market: DebrisBrick
-    else: DebrisWood  # Default for wooden structures
-  # Spawn multiple debris particles with random-ish directions
+    of TownCenter, House, Barracks, ArcheryRange, Stable, Market:
+      DebrisBrick
+    else:
+      DebrisWood
+  # Spawn multiple debris particles with deterministic spread.
   for i in 0 ..< DebrisParticlesPerBuilding:
-    # Create outward velocity with some variation using simple deterministic spread
-    let angle = (i.float32 / DebrisParticlesPerBuilding.float32) * 6.28318  # 2*PI
-    let speed = 0.08 + (i mod 3).float32 * 0.03  # Vary speed slightly
-    let velocity = vec2(cos(angle) * speed, sin(angle) * speed - 0.02)  # Slight downward drift
+    let angle =
+      (i.float32 / DebrisParticlesPerBuilding.float32) * FullTurnRadians
+    let speed = 0.08 + (i mod 3).float32 * 0.03
+    let velocity = vec2(cos(angle) * speed, sin(angle) * speed - 0.02)
     env.debris.add(Debris(
       pos: vec2(pos.x.float32, pos.y.float32),
       velocity: velocity,
@@ -2441,10 +2531,11 @@ proc spawnGatherSparkle*(env: Environment, pos: IVec2) =
   ## Particles burst outward and fade over GatherSparkleLifetime frames.
   if not isValidPos(pos):
     return
-  # Spawn multiple particles in a burst pattern
+  # Spawn multiple particles in a burst pattern.
   for i in 0 ..< GatherSparkleParticleCount:
-    let angle = (i.float32 / GatherSparkleParticleCount.float32) * 6.28318  # 2*PI
-    let speed = 0.06 + (i mod 3).float32 * 0.02  # Vary speed slightly
+    let angle =
+      (i.float32 / GatherSparkleParticleCount.float32) * FullTurnRadians
+    let speed = 0.06 + (i mod 3).float32 * 0.02
     let velocity = vec2(cos(angle) * speed, sin(angle) * speed)
     env.gatherSparkles.add(GatherSparkle(
       pos: vec2(pos.x.float32, pos.y.float32),
@@ -2457,15 +2548,13 @@ proc spawnConstructionDust*(env: Environment, pos: IVec2) =
   ## Particles rise upward and fade over ConstructionDustLifetime frames.
   if not isValidPos(pos):
     return
-  # Spawn multiple dust particles rising from the construction site
+  # Spawn multiple dust particles rising from the construction site.
   for i in 0 ..< ConstructionDustParticleCount:
-    # Horizontal spread: particles start at random-ish positions around the building
-    let xOffset = (i.float32 - 1.0) * 0.25  # Spread horizontally (-0.25, 0, 0.25)
-    # Upward velocity with slight variation
-    let ySpeed = -0.04 - (i mod 2).float32 * 0.02  # Negative Y = upward
-    let xDrift = (i mod 3).float32 * 0.01 - 0.01  # Slight horizontal drift
+    let xOffset = (i.float32 - 1.0) * 0.25
+    let ySpeed = -0.04 - (i mod 2).float32 * 0.02
+    let xDrift = (i mod 3).float32 * 0.01 - 0.01
     env.constructionDust.add(ConstructionDust(
-      pos: vec2(pos.x.float32 + xOffset, pos.y.float32 + 0.3),  # Start at base of building
+      pos: vec2(pos.x.float32 + xOffset, pos.y.float32 + 0.3),
       velocity: vec2(xDrift, ySpeed),
       countdown: ConstructionDustLifetime,
       lifetime: ConstructionDustLifetime))
@@ -2475,7 +2564,7 @@ proc spawnUnitTrail*(env: Environment, pos: IVec2, teamId: int) =
   ## Creates a fading trail effect behind moving units.
   if not isValidPos(pos):
     return
-  # Add slight random drift for more natural dust dispersal
+  # Add slight deterministic drift for more natural dust dispersal.
   let xDrift = ((env.currentStep mod 3).float32 - 1.0) * 0.005
   let yDrift = ((env.currentStep mod 5).float32 - 2.0) * 0.003
   env.unitTrails.add(UnitTrail(
@@ -2490,7 +2579,7 @@ proc spawnDustParticles*(env: Environment, pos: IVec2, terrain: TerrainType) =
   ## Particle color varies based on terrain type.
   if not isValidPos(pos):
     return
-  # Map terrain to color index: 0=sand/dune (tan), 1=snow (white), 2=mud (brown), 3=grass/fertile (green-brown), 4=road (gray)
+  # Map terrain to a fixed particle color index.
   let colorIdx = case terrain
     of Sand, Dune: 0'u8
     of Snow: 1'u8
@@ -2498,12 +2587,10 @@ proc spawnDustParticles*(env: Environment, pos: IVec2, terrain: TerrainType) =
     of Grass, Fertile: 3'u8
     of Road: 4'u8
     else: 0'u8
-  # Spawn multiple small dust particles
+  # Spawn multiple small dust particles.
   for i in 0 ..< DustParticleCount:
-    # Horizontal spread around footstep
     let xOffset = (i.float32 - 1.0) * 0.15
-    # Upward drift with slight variation
-    let ySpeed = -0.03 - (i mod 2).float32 * 0.01  # Negative Y = upward
+    let ySpeed = -0.03 - (i mod 2).float32 * 0.01
     let xDrift = ((env.currentStep + i) mod 3).float32 * 0.008 - 0.008
     env.dustParticles.add(DustParticle(
       pos: vec2(pos.x.float32 + xOffset, pos.y.float32 + 0.2),
@@ -2527,10 +2614,11 @@ proc spawnAttackImpact*(env: Environment, pos: IVec2) =
   ## Particles radiate outward and fade quickly for a sharp impact effect.
   if not isValidPos(pos):
     return
-  # Spawn multiple particles in a radial burst pattern
+  # Spawn multiple particles in a radial burst pattern.
   for i in 0 ..< AttackImpactParticleCount:
-    let angle = (i.float32 / AttackImpactParticleCount.float32) * 6.28318  # 2*PI
-    let speed = 0.12 + (i mod 3).float32 * 0.04  # Vary speed for organic burst
+    let angle =
+      (i.float32 / AttackImpactParticleCount.float32) * FullTurnRadians
+    let speed = 0.12 + (i mod 3).float32 * 0.04
     let velocity = vec2(cos(angle) * speed, sin(angle) * speed)
     env.attackImpacts.add(AttackImpact(
       pos: vec2(pos.x.float32, pos.y.float32),
@@ -2555,21 +2643,16 @@ include "action_audit"
 include "action_freq_counter"
 include "combat"
 
-# ============== CLIPPY AI ==============
-
-
-
-
 {.push inline.}
 proc isValidEmptyPosition(env: Environment, pos: IVec2): bool =
-  ## Check if a position is within map bounds, empty, and not blocked terrain
+  ## Check whether a position is within bounds, empty, and not blocked terrain.
   pos.x >= MapBorder and pos.x < MapWidth - MapBorder and
     pos.y >= MapBorder and pos.y < MapHeight - MapBorder and
     env.isEmpty(pos) and isNil(env.getBackgroundThing(pos)) and
     not isBlockedTerrain(env.terrain[pos.x][pos.y])
 
 proc generateRandomMapPosition(r: var Rand): IVec2 =
-  ## Generate a random position within map boundaries
+  ## Generate a random position within the map boundaries.
   ivec2(
     int32(randIntExclusive(r, MapBorder, MapWidth - MapBorder)),
     int32(randIntExclusive(r, MapBorder, MapHeight - MapBorder))
@@ -2577,7 +2660,7 @@ proc generateRandomMapPosition(r: var Rand): IVec2 =
 {.pop.}
 
 proc findEmptyPositionsAround*(env: Environment, center: IVec2, radius: int): seq[IVec2] =
-  ## Find empty positions around a center point within a given radius
+  ## Find empty positions around a center point within the given radius.
   result = @[]
   for dx in -radius .. radius:
     for dy in -radius .. radius:
@@ -2588,7 +2671,7 @@ proc findEmptyPositionsAround*(env: Environment, center: IVec2, radius: int): se
         result.add(pos)
 
 proc findFirstEmptyPositionAround*(env: Environment, center: IVec2, radius: int): IVec2 =
-  ## Find first empty position around center (no allocation)
+  ## Find the first empty position around the center without allocation.
   for dx in -radius .. radius:
     for dy in -radius .. radius:
       if dx == 0 and dy == 0:
@@ -2598,33 +2681,13 @@ proc findFirstEmptyPositionAround*(env: Environment, center: IVec2, radius: int)
         return pos
   ivec2(-1, -1)
 
-# Tumor constants from shared tuning defaults.
-const
-  TumorBranchRange = DefaultTumorBranchRange
-  TumorBranchMinAge = DefaultTumorBranchMinAge
-  TumorBranchChance = DefaultTumorBranchChance
-  TumorAdjacencyDeathChance = DefaultTumorAdjacencyDeathChance
-  TumorProcessStagger* = 4  ## Process 1/N tumors per step for branching (perf optimization)
-
-let TumorBranchOffsets = block:
-  var offsets: seq[IVec2] = @[]
-  for dx in -TumorBranchRange .. TumorBranchRange:
-    for dy in -TumorBranchRange .. TumorBranchRange:
-      if dx == 0 and dy == 0:
-        continue
-      if max(abs(dx), abs(dy)) > TumorBranchRange:
-        continue
-      offsets.add(ivec2(dx, dy))
-  offsets
-
 proc randomEmptyPos(r: var Rand, env: Environment): IVec2 =
-  # Try with moderate attempts first
-  for i in 0 ..< 100:
+  ## Return a random valid empty position, or raise when the map is full.
+  for _ in 0 ..< 100:
     let pos = r.generateRandomMapPosition()
     if env.isValidEmptyPosition(pos):
       return pos
-  # Try harder with more attempts
-  for i in 0 ..< 1000:
+  for _ in 0 ..< 1000:
     let pos = r.generateRandomMapPosition()
     if env.isValidEmptyPosition(pos):
       return pos
@@ -2633,6 +2696,7 @@ proc randomEmptyPos(r: var Rand, env: Environment): IVec2 =
 include "tint"
 
 proc buildCostsForKey*(key: ItemKey): seq[tuple[key: ItemKey, count: int]] =
+  ## Return the build or craft costs associated with one output key.
   var kind: ThingKind
   if parseThingKey(key, kind) and isBuildingKind(kind):
     var costs: seq[tuple[key: ItemKey, count: int]] = @[]
@@ -2649,34 +2713,25 @@ proc buildCostsForKey*(key: ItemKey): seq[tuple[key: ItemKey, count: int]] =
       return costs
   @[]
 
-let BuildChoices*: array[ActionArgumentCount, ItemKey] = block:
-  var choices: array[ActionArgumentCount, ItemKey]
-  for i in 0 ..< choices.len:
-    choices[i] = ItemNone
-  for kind in ThingKind:
-    if not isBuildingKind(kind):
-      continue
-    if not buildingBuildable(kind):
-      continue
-    let buildIndex = BuildingRegistry[kind].buildIndex
-    if buildIndex >= 0 and buildIndex < choices.len:
-      choices[buildIndex] = thingItem($kind)
-  choices[BuildIndexWall] = thingItem("Wall")
-  choices[BuildIndexRoad] = thingItem("Road")
-  choices[BuildIndexDoor] = thingItem("Door")
-  choices
-
 proc render*(env: Environment): string =
+  ## Render the map as ASCII.
+  ## Terrain fills first, then blocking and background things override it.
   for y in 0 ..< MapHeight:
     for x in 0 ..< MapWidth:
-      # First check terrain
       var cell = $TerrainCatalog[env.terrain[x][y]].ascii
-      # Then override with objects if present (blocking first, background second)
       let blockingThing = env.grid[x][y]
-      let thing = if not isNil(blockingThing): blockingThing else: env.backgroundGrid[x][y]
+      let thing =
+        if not isNil(blockingThing):
+          blockingThing
+        else:
+          env.backgroundGrid[x][y]
       if not isNil(thing):
         let kind = thing.kind
-        let ascii = if isBuildingKind(kind): BuildingRegistry[kind].ascii else: ThingCatalog[kind].ascii
+        let ascii =
+          if isBuildingKind(kind):
+            BuildingRegistry[kind].ascii
+          else:
+            ThingCatalog[kind].ascii
         cell = $ascii
       result.add(cell)
     result.add("\n")

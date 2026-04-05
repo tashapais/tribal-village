@@ -306,8 +306,6 @@ class TestPerformance:
         """Steps per second should be reasonable (>50 SPS)."""
         import time
 
-        env = gameplay_run["env"]
-        num_agents = gameplay_run["num_agents"]
         config = EnvironmentConfig(max_steps=200)
         perf_env = TribalVillageEnv(config=config)
         perf_env.reset()

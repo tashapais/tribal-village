@@ -1,24 +1,13 @@
-## renderer_effects.nim - Visual effects and particle rendering
-##
-## Contains rendering for: shadows, smoke, projectiles, damage numbers,
-## ragdolls, debris, spawn effects, sparkles, trails, ripples, impacts,
-## conversions, and weather effects.
+## Visual effects and particle rendering helpers.
 
 import
   boxy, pixie, vmath,
-  common, environment
-
-# Import sprite helper procs from renderer_core
-import renderer_core, label_cache
-
-# ─── Constants ───────────────────────────────────────────────────────────────
+  common, environment, label_cache, renderer_core
 
 const
-  # Mathematical constants
   Pi = 3.14159265'f32              # π for trigonometric calculations
   TwoPi = 6.28318530'f32           # 2π for full-cycle sine waves
 
-  # Building smoke/chimney effect constants
   SmokeParticleCount = 3           # Number of smoke particles per building
   SmokeParticleScale = 1.0 / 500.0 # Smaller than sprites for wispy look
   SmokeBaseHeight = -0.4           # Start position above building center
@@ -32,11 +21,9 @@ const
   SmokeDriftPhaseRate = 0.1'f32    # Phase offset contribution to drift
   SmokeDriftParticleSpread = 2.1'f32 # Per-particle phase spread for drift variety
 
-  # Weather effect constants
   WeatherParticleDensity = 0.015   # Particles per tile (0.015 = ~1 particle per 67 tiles)
   WeatherParticleScale = 1.0 / 600.0  # Small particles for weather
 
-  # Rain constants
   RainFallSpeed = 0.25'f32         # World units per frame (downward)
   RainDriftSpeed = 0.03'f32        # Slight horizontal drift
   RainCycleFrames = 48             # Frames for one full rain cycle
@@ -68,14 +55,12 @@ const
   RainBlueBase = 0.7'f32           # Base blue channel for rain color
   RainStreakSpacingMult = 2.0'f32   # Streak particle spacing multiplier
 
-  # Wind constants
   WindBlowSpeed = 0.18'f32         # World units per frame (horizontal)
   WindDriftSpeed = 0.02'f32        # Vertical drift
   WindCycleFrames = 64             # Frames for one full wind cycle
   WindAlpha = 0.35'f32             # Wind particle opacity (subtle)
   WindDriftAmplitude = 4.0'f32     # Vertical drift amplitude multiplier
 
-  # Snow constants
   SnowFallSpeed = 0.08'f32         # World units per frame (slow descent)
   SnowDriftSpeed = 0.04'f32        # Horizontal sway amplitude
   SnowDriftFreq = 0.03'f32         # Sway frequency (slow sinusoidal)
@@ -83,72 +68,58 @@ const
   SnowAlpha = 0.7'f32              # Snow particle opacity (visible white)
   SnowParticleScale = 1.0 / 500.0  # Small snowflake particles
 
-  # Weather viewport margin (tiles beyond edge to render particles)
   WeatherViewportMargin = 2.0'f32  # Extra margin around viewport for seamless edges
   WeatherViewportClipMargin = 1.0'f32 # Clip margin for wind particle culling
   RainFallbackRadiusExtra = 1.5'f32 # Extra radius added to fallback rain patch
   RainNoiseCenterOffset = 0.5'f32  # Center offset for y-axis noise distribution
 
-  # Damage number rendering constants
   DamageNumberFontPath = "data/Inter-Regular.ttf"
   DamageNumberFontSize: float32 = 28
   DamageNumberFloatHeight: float32 = 0.8  # World units to float upward
   DamageNumberOutlineWidth = 2.0'f32       # Outline stroke width for damage labels
   DamageNumberLabelScale = 1.0 / 200.0     # World-space scale for damage labels
 
-  # Projectile trail constants
   ProjectileTrailMaxAlpha = 0.7'f32  # Max opacity for trail points (70%)
   ProjectileTrailMinScale = 0.5'f32  # Trail shrinks to 50% at tail end
 
-  # Debris particle constants
   DebrisParticleScale = 1.0 / 350.0  # Slightly smaller than projectiles
 
-  # Spawn effect constants
   SpawnEffectScaleMin = 0.3'f32      # Starting scale fraction (30%)
   SpawnEffectScaleRange = 0.7'f32    # Scale range from min to full (70%)
   SpawnEffectMaxAlpha = 0.6'f32      # Max alpha to avoid being too bright
   SpawnEffectRotationSpeed = TwoPi   # Full rotation over effect lifetime
 
-  # Gather sparkle constants
   GatherSparkleScale = 1.0 / 450.0   # Small sparkle particles
   GatherSparkleMaxAlpha = 0.8'f32    # Max sparkle opacity
   GatherSparkleScaleMin = 0.5'f32    # Min scale fraction
 
-  # Construction dust constants
   ConstructionDustScale = 1.0 / 400.0 # Scale for dust particles
   ConstructionDustMaxAlpha = 0.5'f32  # Max dust opacity
   ConstructionDustScaleBase = 0.7'f32 # Base scale fraction
   ConstructionDustScaleRange = 0.3'f32 # Scale variation range
 
-  # Unit trail constants
   UnitTrailScale = 1.0 / 500.0       # Small trail dots
   UnitTrailMaxAlpha = 0.4'f32        # Trail max opacity
 
-  # Walking dust constants
   WalkingDustScale = 1.0 / 600.0     # Small walking dust particles
   WalkingDustMaxAlpha = 0.6'f32      # Max walking dust opacity
   WalkingDustScaleMin = 0.5'f32      # Min scale fraction
 
-  # Water ripple constants
   RippleScaleMin = 0.2'f32           # Starting ripple scale (20%)
   RippleScaleRange = 0.8'f32         # Ripple scale range (80%)
   RippleMaxAlpha = 0.5'f32           # Max ripple opacity (subtle)
 
-  # Attack impact constants
   AttackImpactScale = 1.0 / 400.0    # Impact particle scale
   AttackImpactMaxAlpha = 0.9'f32     # Impact max opacity (punchy)
   AttackImpactScaleMin = 0.3'f32     # Min scale fraction
   AttackImpactScaleRange = 0.7'f32   # Scale range
 
-  # Conversion effect constants
   ConversionPulseFreq = 2.0'f32      # Number of pulses over lifetime
   ConversionAlphaBlend = 0.8'f32     # Alpha multiplier for color blending
   ConversionBaseScale = 1.0 / 400.0  # Base scale for conversion ring
   ConversionExpandMult = 1.5'f32     # Expansion multiplier as effect fades
   ConversionAlphaBase = 0.5'f32      # Base alpha contribution (before pulse modulation)
   ConversionAlphaPulseRange = 0.5'f32 # Additional alpha from pulse (0 to this value)
-
-# ─── Damage Number Cache ─────────────────────────────────────────────────────
 
 proc getDamageNumberLabel(amount: int, kind: DamageNumberKind): (string, IVec2) =
   ## Get or create a cached damage number label image.
@@ -160,15 +131,18 @@ proc getDamageNumberLabel(amount: int, kind: DamageNumberKind): (string, IVec2) 
     of DmgNumDamage: "d"
     of DmgNumHeal: "h"
     of DmgNumCritical: "c"
-  let style = labelStyleOutlined(DamageNumberFontPath, DamageNumberFontSize,
-                                  DamageNumberOutlineWidth, textColor)
+  let style = labelStyle(
+    DamageNumberFontPath,
+    DamageNumberFontSize,
+    DamageNumberOutlineWidth,
+    0.0,
+    textColor,
+    true
+  )
   let cached = ensureLabel("dmgnum", prefix & $amount, style)
   return (cached.imageKey, cached.size)
 
-# ─── Projectile Constants ────────────────────────────────────────────────────
-
 const
-  # Projectile scale constants (inverse divisor for sprite rendering)
   ProjArrowScale = (1.0 / 400.0).float32      # Small arrow
   ProjLongbowScale = (1.0 / 380.0).float32    # Slightly larger arrow
   ProjJanissaryScale = (1.0 / 350.0).float32  # Medium projectile
@@ -200,45 +174,33 @@ const
   ProjectileTrailPoints = 5     # Number of trail segments behind projectile
   ProjectileTrailStep = 0.12'f32  # Time step between trail points (fraction of lifetime)
 
-# ─── Debris Constants ────────────────────────────────────────────────────────
-
 const DebrisColors: array[DebrisKind, Color] = [
   DebrisWoodColor,   # DebrisWood - brown
   DebrisStoneColor,  # DebrisStone - gray
   DebrisBrickColor,  # DebrisBrick - terracotta/orange-brown
 ]
 
-# ─── Effect Drawing Procedures ───────────────────────────────────────────────
-
 proc drawBuildingSmoke*(buildingPos: Vec2, buildingId: int) =
   ## Draw procedural smoke particles rising from an active building.
   ## Uses deterministic noise based on frame and building ID for consistent animation.
   for i in 0 ..< SmokeParticleCount:
-    # Each particle has a unique phase offset based on building ID and particle index
     let phase = (buildingId * 7 + i * 13) mod 100
     let cycleFrame = (frame + phase * 3) mod (SmokeAnimSpeed * SmokeParticleCount)
 
-    # Calculate particle's position in its rise cycle (0.0 to 1.0)
     let particleCycle = (cycleFrame + i * SmokeAnimSpeed) mod (SmokeAnimSpeed * SmokeParticleCount)
     let t = particleCycle.float32 / (SmokeAnimSpeed * SmokeParticleCount).float32
 
-    # Vertical rise with slight acceleration at start
     let rise = t * t * SmokeMaxHeight
 
-    # Horizontal drift using sine wave for gentle swaying
     let driftPhase = (frame.float32 * SmokeDriftFrameRate + phase.float32 * SmokeDriftPhaseRate + i.float32 * SmokeDriftParticleSpread)
     let drift = sin(driftPhase) * SmokeDriftAmount * t
 
-    # Position particle above building
     let particlePos = buildingPos + vec2(drift, SmokeBaseHeight - rise)
 
-    # Fade out as particle rises (full opacity at start, transparent at top)
     let alpha = (1.0 - t) * SmokeMaxAlpha
 
-    # Slight size variation based on rise (particles expand as they rise)
     let sizeScale = SmokeParticleScale * (1.0 + t * SmokeExpansionRate)
 
-    # Gray-white smoke color with slight variation per particle
     let grayVal = SmokeBaseGray + (i.float32 * SmokeGrayVariation)
     let smokeTint = color(grayVal, grayVal, grayVal, alpha)
 
@@ -259,24 +221,19 @@ proc drawProjectiles*() =
     let tgtX = proj.target.x.float32
     let tgtY = proj.target.y.float32
 
-    # Draw trail points (from back to front, oldest first)
-    # Trail points represent past positions along the trajectory
     for i in countdown(ProjectileTrailPoints - 1, 0):
       let trailT = t + ProjectileTrailStep * (i + 1).float32
-      # Skip trail points that would be beyond the source position
       if trailT > 1.0:
         continue
       let trailPos = vec2(
         srcX * trailT + tgtX * (1.0 - trailT),
         srcY * trailT + tgtY * (1.0 - trailT))
-      # Fade opacity and shrink scale for older trail points
       let fadeRatio = 1.0 - (i + 1).float32 / (ProjectileTrailPoints + 1).float32
       let trailAlpha = c.a * fadeRatio * ProjectileTrailMaxAlpha
       let trailScale = sc * (ProjectileTrailMinScale + ProjectileTrailMinScale * fadeRatio)
       let trailColor = withAlpha(c, trailAlpha)
       bxy.drawImage("floor", trailPos, angle = 0, scale = trailScale, tint = trailColor)
 
-    # Draw projectile head at current position
     let pos = vec2(srcX * t + tgtX * (1.0 - t), srcY * t + tgtY * (1.0 - t))
     bxy.drawImage("floor", pos, angle = 0, scale = sc, tint = c)
 

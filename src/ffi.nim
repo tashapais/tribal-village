@@ -355,7 +355,7 @@ proc tribal_village_clear_error*() {.exportc, dynlib.} =
 
 proc tribal_village_set_attack_move*(agentId: int32, x: int32, y: int32) {.exportc, dynlib.} =
   ## Set an attack-move target for an agent.
-  setAgentAttackMoveTargetXY(agentId, x, y)
+  setAgentAttackMoveTarget(agentId, ivec2(x, y))
 
 proc tribal_village_clear_attack_move*(agentId: int32) {.exportc, dynlib.} =
   ## Clear the attack-move target for an agent.
@@ -377,7 +377,7 @@ proc tribal_village_is_attack_move_active*(agentId: int32): int32 {.exportc, dyn
 
 proc tribal_village_set_patrol*(agentId: int32, x1: int32, y1: int32, x2: int32, y2: int32) {.exportc, dynlib.} =
   ## Set patrol waypoints for an agent.
-  setAgentPatrolXY(agentId, x1, y1, x2, y2)
+  setAgentPatrol(agentId, ivec2(x1, y1), ivec2(x2, y2))
 
 proc tribal_village_clear_patrol*(agentId: int32) {.exportc, dynlib.} =
   ## Clear patrol mode for an agent.
@@ -577,7 +577,7 @@ proc tribal_village_stop*(agentId: int32) {.exportc, dynlib.} =
 proc tribal_village_hold_position*(agentId: int32, x: int32, y: int32) {.exportc, dynlib.} =
   ## Set hold position for an agent at the given coordinates.
   ## The agent stays at the position, attacks enemies in range, but won't chase.
-  setAgentHoldPositionXY(agentId, x, y)
+  setAgentHoldPosition(agentId, ivec2(x, y))
 
 proc tribal_village_clear_hold_position*(agentId: int32) {.exportc, dynlib.} =
   ## Clear hold position for an agent.
@@ -627,15 +627,15 @@ proc tribal_village_get_formation*(env: pointer, controlGroupId: int32): int32 {
 
 proc tribal_village_clear_formation*(env: pointer, controlGroupId: int32) {.exportc, dynlib.} =
   ## Clear formation for a control group.
-  clearControlGroupFormation(controlGroupId)
+  clearFormation(controlGroupId)
 
 proc tribal_village_set_formation_rotation*(env: pointer, controlGroupId: int32, rotation: int32) {.exportc, dynlib.} =
   ## Set formation rotation for a control group (0-7 for 8 compass directions).
-  setControlGroupFormationRotation(controlGroupId, rotation)
+  setFormationRotation(controlGroupId, rotation.int)
 
 proc tribal_village_get_formation_rotation*(env: pointer, controlGroupId: int32): int32 {.exportc, dynlib.} =
   ## Get formation rotation for a control group.
-  getControlGroupFormationRotation(controlGroupId)
+  getFormationRotation(controlGroupId).int32
 
 # --- Market Trading ---
 
@@ -1251,7 +1251,9 @@ proc tribal_village_get_num_building_kinds*(): int32 {.exportc, dynlib.} =
 proc tribal_village_set_gatherer_priority*(env: pointer, agentId: int32, resource: int32) {.exportc, dynlib.} =
   ## Set an individual gatherer to prioritize collecting a specific resource.
   ## resource: 0=Food, 1=Wood, 2=Gold, 3=Stone
-  setGathererPriorityInt(agentId, resource)
+  if resource < 0 or resource > ord(StockpileResource.high).int32:
+    return
+  setGathererPriority(agentId, StockpileResource(resource))
 
 proc tribal_village_clear_gatherer_priority*(env: pointer, agentId: int32) {.exportc, dynlib.} =
   ## Clear the individual gatherer priority override.
@@ -1260,7 +1262,10 @@ proc tribal_village_clear_gatherer_priority*(env: pointer, agentId: int32) {.exp
 proc tribal_village_get_gatherer_priority*(env: pointer, agentId: int32): int32 {.exportc, dynlib.} =
   ## Get the current gatherer priority for an agent.
   ## Returns -1 if no priority is set, otherwise 0=Food, 1=Wood, 2=Gold, 3=Stone
-  getGathererPriorityInt(agentId)
+  let resource = getGathererPriority(agentId)
+  if resource == ResourceNone:
+    return -1
+  ord(resource).int32
 
 proc tribal_village_is_gatherer_priority_active*(env: pointer, agentId: int32): int32 {.exportc, dynlib.} =
   ## Check if an individual gatherer priority is active.
@@ -1272,7 +1277,9 @@ proc tribal_village_set_team_economy_focus*(env: pointer, teamId: int32, resourc
   ## resource: 0=Food, 1=Wood, 2=Gold, 3=Stone
   if teamId < 0 or teamId >= MapRoomObjectsTeams:
     return
-  setTeamEconomyFocusInt(teamId, resource)
+  if resource < 0 or resource > ord(StockpileResource.high).int32:
+    return
+  setTeamEconomyFocus(teamId, StockpileResource(resource))
 
 proc tribal_village_clear_team_economy_focus*(env: pointer, teamId: int32) {.exportc, dynlib.} =
   ## Clear the team-level economy focus.
@@ -1285,7 +1292,10 @@ proc tribal_village_get_team_economy_focus*(env: pointer, teamId: int32): int32 
   ## Returns -1 if no focus is set, otherwise 0=Food, 1=Wood, 2=Gold, 3=Stone
   if teamId < 0 or teamId >= MapRoomObjectsTeams:
     return -1
-  getTeamEconomyFocusInt(teamId)
+  let resource = getTeamEconomyFocus(teamId)
+  if resource == ResourceNone:
+    return -1
+  ord(resource).int32
 
 proc tribal_village_is_team_economy_focus_active*(env: pointer, teamId: int32): int32 {.exportc, dynlib.} =
   ## Check if a team economy focus is active.

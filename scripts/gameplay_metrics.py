@@ -399,7 +399,6 @@ def build_summary(
         resource_stats[r]["gathering_rate_mean"] > 0 for r in RESOURCE_LAYERS
     )
     pops = [records[-1].get(f"t{t}_pop", 0) for t in range(NUM_TEAMS)]
-    pop_growing = max(pops) > min(pops) if pops else False
     max_pop = max(pops) if pops else 0
     min_pop = min(pops) if pops else 0
     pop_divergence = (max_pop - min_pop) / max(max_pop, 1)

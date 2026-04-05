@@ -1,28 +1,23 @@
-## tumor_audit.nim - Tumor spread and biome infection audit logging
-##
-## Gated behind -d:tumorAudit compile flag. Zero-cost when disabled.
-## Tracks tumors spawned, total count, damage dealt, tiles spread, and spread rate.
-## Prints periodic tumor reports to console every N steps.
-##
-## Included by environment.nim — types, items, spatial_index, strutils, os are in scope.
+## Tumor spread audit logging for spawn, damage, and interval summaries.
 
 when defined(tumorAudit):
-  import std/strutils
-  import envconfig
-  import types
+  import
+    std/strutils,
+    envconfig, types
+
+  const
+    ReportDivider = "═══════════════════════════════════════════════════════"
 
   type
     TumorAuditState* = object
       reportInterval*: int
       lastReportStep*: int
-      ## Cumulative totals (lifetime)
-      totalSpawned*: int          ## Total tumors spawned by spawners
-      totalBranched*: int         ## Total tumors created by branching
-      totalDamageDealt*: int      ## Total damage dealt to agents
-      totalAgentKills*: int       ## Agents killed by tumors
-      totalPredatorKills*: int    ## Bears/wolves killed by tumors
-      totalTumorsDestroyed*: int  ## Tumors destroyed via mutual kill
-      ## Per-interval counters (reset each report)
+      totalSpawned*: int
+      totalBranched*: int
+      totalDamageDealt*: int
+      totalAgentKills*: int
+      totalPredatorKills*: int
+      totalTumorsDestroyed*: int
       intervalSpawned*: int
       intervalBranched*: int
       intervalDamageDealt*: int
@@ -30,10 +25,12 @@ when defined(tumorAudit):
       intervalPredatorKills*: int
       intervalTumorsDestroyed*: int
 
-  var tumorAudit*: TumorAuditState
-  var tumorAuditInitialized = false
+  var
+    tumorAudit*: TumorAuditState
+    tumorAuditInitialized = false
 
   proc initTumorAudit*() =
+    ## Initialize tumor audit state from environment settings.
     tumorAudit = TumorAuditState(
       reportInterval: max(1, parseEnvInt("TV_TUMOR_REPORT_INTERVAL", 100)),
       lastReportStep: 0
@@ -41,20 +38,33 @@ when defined(tumorAudit):
     tumorAuditInitialized = true
 
   proc ensureTumorAuditInit*() =
+    ## Initialize tumor audit state on first use.
     if not tumorAuditInitialized:
       initTumorAudit()
 
+  proc resetIntervalStats() =
+    ## Clears per-interval tumor counters after one report.
+    tumorAudit.intervalSpawned = 0
+    tumorAudit.intervalBranched = 0
+    tumorAudit.intervalDamageDealt = 0
+    tumorAudit.intervalAgentKills = 0
+    tumorAudit.intervalPredatorKills = 0
+    tumorAudit.intervalTumorsDestroyed = 0
+
   proc recordTumorSpawned*() =
+    ## Record one tumor spawned by a spawner.
     ensureTumorAuditInit()
     inc tumorAudit.totalSpawned
     inc tumorAudit.intervalSpawned
 
   proc recordTumorBranched*() =
+    ## Record one tumor created by branching.
     ensureTumorAuditInit()
     inc tumorAudit.totalBranched
     inc tumorAudit.intervalBranched
 
   proc recordTumorDamage*(killed: bool) =
+    ## Record one tumor damage event and optional agent kill.
     ensureTumorAuditInit()
     inc tumorAudit.totalDamageDealt
     inc tumorAudit.intervalDamageDealt
@@ -63,71 +73,100 @@ when defined(tumorAudit):
       inc tumorAudit.intervalAgentKills
 
   proc recordTumorPredatorKill*() =
+    ## Record one predator kill caused by tumors.
     ensureTumorAuditInit()
     inc tumorAudit.totalPredatorKills
     inc tumorAudit.intervalPredatorKills
 
   proc recordTumorDestroyed*() =
+    ## Record one destroyed tumor.
     ensureTumorAuditInit()
     inc tumorAudit.totalTumorsDestroyed
     inc tumorAudit.intervalTumorsDestroyed
 
   proc printTumorReport*(env: Environment) =
+    ## Print the tumor report when the reporting interval elapses.
     ensureTumorAuditInit()
     if env.currentStep - tumorAudit.lastReportStep < tumorAudit.reportInterval:
       return
     tumorAudit.lastReportStep = env.currentStep
 
-    # Count active tumors on map
-    let activeTumors = env.thingsByKind[Tumor].len
-    # Count mobile vs inert
-    var mobileTumors = 0
-    var inertTumors = 0
+    let
+      activeTumors = env.thingsByKind[Tumor].len
+      spawnerCount = env.thingsByKind[Spawner].len
+      intervalSteps = tumorAudit.reportInterval
+      newThisInterval = tumorAudit.intervalSpawned + tumorAudit.intervalBranched
+    var
+      mobileTumors = 0
+      inertTumors = 0
     for tumor in env.thingsByKind[Tumor]:
-      if tumor.isNil: continue
+      if tumor.isNil:
+        continue
       if tumor.hasClaimedTerritory:
         inc inertTumors
       else:
         inc mobileTumors
 
-    # Count spawners
-    let spawnerCount = env.thingsByKind[Spawner].len
+    let spreadVelocity =
+      if intervalSteps > 0:
+        newThisInterval.float / intervalSteps.float
+      else:
+        0.0
 
-    # Compute spread velocity (new tumors per interval)
-    let intervalSteps = tumorAudit.reportInterval
-    let newThisInterval = tumorAudit.intervalSpawned + tumorAudit.intervalBranched
-    let spreadVelocity = if intervalSteps > 0:
-      newThisInterval.float / intervalSteps.float
-    else: 0.0
-
-    echo "═══════════════════════════════════════════════════════"
+    echo ReportDivider
     echo "  TUMOR REPORT — Step ", env.currentStep
-    echo "═══════════════════════════════════════════════════════"
-    echo "  Active tumors: ", activeTumors, " (mobile=", mobileTumors,
-         " inert=", inertTumors, ")"
+    echo ReportDivider
+    echo(
+      "  Active tumors: ",
+      activeTumors,
+      " (mobile=",
+      mobileTumors,
+      " inert=",
+      inertTumors,
+      ")"
+    )
     echo "  Spawners: ", spawnerCount
     echo "  --- This interval (", intervalSteps, " steps) ---"
-    echo "  New tumors: ", newThisInterval,
-         " (spawned=", tumorAudit.intervalSpawned,
-         " branched=", tumorAudit.intervalBranched, ")"
-    echo "  Spread velocity: ", formatFloat(spreadVelocity, ffDecimal, 3), " tumors/step"
-    echo "  Damage dealt: ", tumorAudit.intervalDamageDealt,
-         " (agent kills=", tumorAudit.intervalAgentKills,
-         " predator kills=", tumorAudit.intervalPredatorKills, ")"
+    echo(
+      "  New tumors: ",
+      newThisInterval,
+      " (spawned=",
+      tumorAudit.intervalSpawned,
+      " branched=",
+      tumorAudit.intervalBranched,
+      ")"
+    )
+    echo(
+      "  Spread velocity: ",
+      formatFloat(spreadVelocity, ffDecimal, 3),
+      " tumors/step"
+    )
+    echo(
+      "  Damage dealt: ",
+      tumorAudit.intervalDamageDealt,
+      " (agent kills=",
+      tumorAudit.intervalAgentKills,
+      " predator kills=",
+      tumorAudit.intervalPredatorKills,
+      ")"
+    )
     echo "  Tumors destroyed: ", tumorAudit.intervalTumorsDestroyed
     echo "  --- Lifetime totals ---"
-    echo "  Total spawned: ", tumorAudit.totalSpawned,
-         " Total branched: ", tumorAudit.totalBranched
-    echo "  Total damage: ", tumorAudit.totalDamageDealt,
-         " Agent kills: ", tumorAudit.totalAgentKills,
-         " Predator kills: ", tumorAudit.totalPredatorKills
+    echo(
+      "  Total spawned: ",
+      tumorAudit.totalSpawned,
+      " Total branched: ",
+      tumorAudit.totalBranched
+    )
+    echo(
+      "  Total damage: ",
+      tumorAudit.totalDamageDealt,
+      " Agent kills: ",
+      tumorAudit.totalAgentKills,
+      " Predator kills: ",
+      tumorAudit.totalPredatorKills
+    )
     echo "  Total tumors destroyed: ", tumorAudit.totalTumorsDestroyed
-    echo "═══════════════════════════════════════════════════════"
+    echo ReportDivider
 
-    # Reset interval counters
-    tumorAudit.intervalSpawned = 0
-    tumorAudit.intervalBranched = 0
-    tumorAudit.intervalDamageDealt = 0
-    tumorAudit.intervalAgentKills = 0
-    tumorAudit.intervalPredatorKills = 0
-    tumorAudit.intervalTumorsDestroyed = 0
+    resetIntervalStats()

@@ -222,7 +222,6 @@ def iter_rows(
     only: set[str] | None,
 ) -> Iterable[tuple[str, str]]:
     for filename, prompt in rows:
-        if only:
-            if filename not in only and Path(filename).name not in only:
-                continue
+        if only and filename not in only and Path(filename).name not in only:
+            continue
         yield filename, prompt

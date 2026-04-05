@@ -27,6 +27,10 @@ from typing import Any, ClassVar, NoReturn, Self, Union, get_args, get_origin
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
 
+def reward_legacy_field_name(field_name: str) -> str:
+    return field_name if field_name.endswith("_penalty") else f"{field_name}_reward"
+
+
 class Config(BaseModel):
     """Base configuration class with override support and validation.
 
@@ -38,30 +42,6 @@ class Config(BaseModel):
     """
 
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
-
-    def _auto_initialize_field(self, parent_obj: Config, field_name: str) -> Config | None:
-        """Auto-initialize a None Config field if possible."""
-        field = type(parent_obj).model_fields.get(field_name)
-        if not field:
-            return None
-
-        field_type = self._unwrap_optional(field.annotation)
-        if not (isinstance(field_type, type) and issubclass(field_type, Config)):
-            return None
-
-        try:
-            new_instance = field_type()
-            setattr(parent_obj, field_name, new_instance)
-            return new_instance
-        except (TypeError, ValueError):
-            return None
-
-    def _unwrap_optional(self, field_type: Any) -> Any:
-        """Unwrap Optional[T] / T | None to T if applicable, else return original type."""
-        if get_origin(field_type) is Union or isinstance(field_type, types.UnionType):
-            non_none_types = [arg for arg in get_args(field_type) if arg is not type(None)]
-            return non_none_types[0] if len(non_none_types) == 1 else field_type
-        return field_type
 
     def override(self, key: str, value: Any) -> Self:
         """Override a value in the config using dot-notation path.
@@ -94,11 +74,7 @@ class Config(BaseModel):
                     continue
 
                 remaining_path = ".".join(key_path[i:])
-                if remaining_path in inner_cfg:
-                    inner_cfg[remaining_path] = value
-                    return self
-
-                if i == len(key_path) - 2:
+                if remaining_path in inner_cfg or i == len(key_path) - 2:
                     inner_cfg[remaining_path] = value
                     return self
 
@@ -110,7 +86,21 @@ class Config(BaseModel):
 
             next_inner_cfg = getattr(inner_cfg, key_part)
             if next_inner_cfg is None:
-                next_inner_cfg = self._auto_initialize_field(inner_cfg, key_part)
+                field = type(inner_cfg).model_fields.get(key_part)
+                if field is not None:
+                    field_type = field.annotation
+                    if get_origin(field_type) is Union or isinstance(field_type, types.UnionType):
+                        non_none_types = [
+                            arg for arg in get_args(field_type) if arg is not type(None)
+                        ]
+                        if len(non_none_types) == 1:
+                            field_type = non_none_types[0]
+                    if isinstance(field_type, type) and issubclass(field_type, Config):
+                        try:
+                            next_inner_cfg = field_type()
+                            setattr(inner_cfg, key_part, next_inner_cfg)
+                        except (TypeError, ValueError):
+                            next_inner_cfg = None
                 if next_inner_cfg is None:
                     failed_path = ".".join(traversed_path + [key_part])
                     fail(f"Cannot auto-initialize None field {failed_path}")
@@ -123,20 +113,14 @@ class Config(BaseModel):
             traversed_path.append(key_part)
             i += 1
 
-        if isinstance(inner_cfg, Config):
-            if not hasattr(inner_cfg, key_path[-1]):
-                fail(f"key {key} not found")
+        if isinstance(inner_cfg, Config) and not hasattr(inner_cfg, key_path[-1]):
+            fail(f"key {key} not found")
 
         if isinstance(inner_cfg, dict):
             final_key = key_path[-1]
-            if final_key in inner_cfg:
-                inner_cfg[final_key] = value
-            else:
-                remaining = ".".join(key_path[i:])
-                if remaining in inner_cfg:
-                    inner_cfg[remaining] = value
-                else:
-                    inner_cfg[final_key] = value
+            remaining = ".".join(key_path[i:])
+            target_key = remaining if final_key not in inner_cfg and remaining in inner_cfg else final_key
+            inner_cfg[target_key] = value
             return self
 
         cls = type(inner_cfg)
@@ -216,14 +200,6 @@ class RewardConfig(Config):
         default=math.nan,
         description="Penalty applied when an agent dies",
     )
-
-    @staticmethod
-    def _legacy_key(field_name: str) -> str:
-        """Map a RewardConfig field name to its legacy dict key."""
-        if field_name.endswith("_penalty"):
-            return field_name
-        return f"{field_name}_reward"
-
 
 class EnvironmentConfig(Config):
     """Configuration for the Tribal Village environment.
@@ -308,7 +284,7 @@ class EnvironmentConfig(Config):
         for field_name in RewardConfig.model_fields:
             value = getattr(self.rewards, field_name)
             if not math.isnan(value):
-                result[RewardConfig._legacy_key(field_name)] = value
+                result[reward_legacy_field_name(field_name)] = value
 
         return result
 
@@ -316,7 +292,7 @@ class EnvironmentConfig(Config):
     def from_legacy_dict(cls, config: dict[str, Any]) -> EnvironmentConfig:
         """Create config from legacy dictionary format."""
         reward_kwargs = {
-            field_name: config.get(RewardConfig._legacy_key(field_name), math.nan)
+            field_name: config.get(reward_legacy_field_name(field_name), math.nan)
             for field_name in RewardConfig.model_fields
         }
         rewards = RewardConfig(**reward_kwargs)

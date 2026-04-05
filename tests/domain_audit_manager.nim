@@ -1,175 +1,122 @@
-import std/[unittest]
-import audit_manager
-import environment
-import test_utils
+## Domain checks for audit manager orchestration and compile-time flags.
 
-# =============================================================================
-# Audit Manager - Type Enumeration
-# =============================================================================
+import
+  audit_manager, test_utils
 
-suite "AuditManager - AuditKind":
-  test "all AuditKind values are distinct":
-    var seen: set[AuditKind]
-    for kind in AuditKind:
-      check kind notin seen
-      seen.incl(kind)
-    check seen.card == 6  # Combat, Econ, Tech, Action, Tumor, Ai
+proc checkAuditKindValues() =
+  ## Verify that `AuditKind` covers each audit type exactly once.
+  echo "Testing audit kind values"
+  var seen: set[AuditKind]
+  for kind in AuditKind:
+    doAssert kind notin seen, "AuditKind values should be distinct"
+    seen.incl(kind)
+  doAssert seen.card == 6, "AuditKind should expose 6 audit types"
+  doAssert akCombat in {AuditKind.low .. AuditKind.high}
+  doAssert akEcon in {AuditKind.low .. AuditKind.high}
+  doAssert akTech in {AuditKind.low .. AuditKind.high}
+  doAssert akAction in {AuditKind.low .. AuditKind.high}
+  doAssert akTumor in {AuditKind.low .. AuditKind.high}
+  doAssert akAi in {AuditKind.low .. AuditKind.high}
 
-  test "AuditKind covers all audit types":
-    check akCombat in {AuditKind.low .. AuditKind.high}
-    check akEcon in {AuditKind.low .. AuditKind.high}
-    check akTech in {AuditKind.low .. AuditKind.high}
-    check akAction in {AuditKind.low .. AuditKind.high}
-    check akTumor in {AuditKind.low .. AuditKind.high}
-    check akAi in {AuditKind.low .. AuditKind.high}
+proc checkIsAuditEnabled() =
+  ## Verify `isAuditEnabled` returns stable boolean values.
+  echo "Testing isAuditEnabled"
+  let
+    combatEnabled = isAuditEnabled(akCombat)
+    econEnabled = isAuditEnabled(akEcon)
+    techEnabled = isAuditEnabled(akTech)
+    actionEnabled = isAuditEnabled(akAction)
+    tumorEnabled = isAuditEnabled(akTumor)
+    aiEnabled = isAuditEnabled(akAi)
+  doAssert combatEnabled in {true, false}
+  doAssert econEnabled in {true, false}
+  doAssert techEnabled in {true, false}
+  doAssert actionEnabled in {true, false}
+  doAssert tumorEnabled in {true, false}
+  doAssert aiEnabled in {true, false}
+  doAssert isAuditEnabled(akCombat) == isAuditEnabled(akCombat)
+  doAssert isAuditEnabled(akEcon) == isAuditEnabled(akEcon)
+  doAssert isAuditEnabled(akTech) == isAuditEnabled(akTech)
 
-# =============================================================================
-# Audit Manager - isAuditEnabled
-# =============================================================================
+proc checkGetEnabledAudits() =
+  ## Verify `getEnabledAudits` matches the compile-time flag queries.
+  echo "Testing getEnabledAudits"
+  let enabled = getEnabledAudits()
+  doAssert enabled.len >= 0
+  doAssert enabled.len <= 6, "No more than 6 audit kinds should be enabled"
 
-suite "AuditManager - isAuditEnabled":
-  test "isAuditEnabled returns compile-time flags":
-    # These checks verify the proc compiles and runs for each audit kind.
-    # The actual return value depends on compile-time flags.
-    let combatEnabled = isAuditEnabled(akCombat)
-    let econEnabled = isAuditEnabled(akEcon)
-    let techEnabled = isAuditEnabled(akTech)
-    let actionEnabled = isAuditEnabled(akAction)
-    let tumorEnabled = isAuditEnabled(akTumor)
-    let aiEnabled = isAuditEnabled(akAi)
-    # Verify booleans are returned (true or false)
-    check combatEnabled in {true, false}
-    check econEnabled in {true, false}
-    check techEnabled in {true, false}
-    check actionEnabled in {true, false}
-    check tumorEnabled in {true, false}
-    check aiEnabled in {true, false}
+  var seen: set[AuditKind]
+  for kind in enabled:
+    doAssert kind notin seen, "Enabled audit kinds should not repeat"
+    seen.incl(kind)
 
-  test "isAuditEnabled is consistent":
-    # Calling twice should return the same result
-    check isAuditEnabled(akCombat) == isAuditEnabled(akCombat)
-    check isAuditEnabled(akEcon) == isAuditEnabled(akEcon)
-    check isAuditEnabled(akTech) == isAuditEnabled(akTech)
+  for kind in AuditKind:
+    if isAuditEnabled(kind):
+      doAssert kind in enabled, "Enabled audit kind should appear in result"
+    else:
+      doAssert kind notin enabled, "Disabled audit kind should not appear"
 
-# =============================================================================
-# Audit Manager - getEnabledAudits
-# =============================================================================
+proc checkInitAllAudits() =
+  ## Verify repeated audit initialization does not fail.
+  echo "Testing initAllAudits"
+  initAllAudits()
+  initAllAudits()
+  doAssert true
 
-suite "AuditManager - getEnabledAudits":
-  test "getEnabledAudits returns a seq":
-    let enabled = getEnabledAudits()
-    # Should return some sequence (possibly empty if no audits enabled)
-    check enabled.len >= 0
-    check enabled.len <= 6  # Max 6 audit types
+proc checkFlushAllAudits() =
+  ## Verify flushing works across multiple step counts.
+  echo "Testing flushAllAudits"
+  let env = makeEmptyEnv()
+  initAllAudits()
+  flushAllAudits(env, 0)
+  flushAllAudits(env, 100)
+  flushAllAudits(env, 1000)
+  doAssert true
 
-  test "getEnabledAudits matches isAuditEnabled":
-    let enabled = getEnabledAudits()
-    for kind in AuditKind:
-      if isAuditEnabled(kind):
-        check kind in enabled
-      else:
-        check kind notin enabled
+proc checkResetAllAudits() =
+  ## Verify repeated reset calls are safe.
+  echo "Testing resetAllAudits"
+  let env = makeEmptyEnv()
+  initAllAudits()
+  flushAllAudits(env, 50)
+  resetAllAudits()
+  resetAllAudits()
+  flushAllAudits(env, 0)
+  doAssert true
 
-  test "getEnabledAudits has no duplicates":
-    let enabled = getEnabledAudits()
-    var seen: set[AuditKind]
-    for kind in enabled:
-      check kind notin seen
-      seen.incl(kind)
+proc checkAuditLifecycle() =
+  ## Verify a full init, flush, reset, and flush lifecycle.
+  echo "Testing full audit lifecycle"
+  let env = makeEmptyEnv()
+  initAllAudits()
+  for step in 0 ..< 10:
+    env.stepNoop()
+    flushAllAudits(env, step)
+  resetAllAudits()
+  for step in 0 ..< 5:
+    flushAllAudits(env, step)
+  doAssert true
 
-# =============================================================================
-# Audit Manager - Initialization
-# =============================================================================
+proc checkMultipleEnvironments() =
+  ## Verify flushing works across multiple environments.
+  echo "Testing multiple environments"
+  let
+    env1 = makeEmptyEnv()
+    env2 = makeEmptyEnv()
+  initAllAudits()
+  flushAllAudits(env1, 0)
+  flushAllAudits(env2, 0)
+  flushAllAudits(env1, 1)
+  flushAllAudits(env2, 1)
+  doAssert true
 
-suite "AuditManager - initAllAudits":
-  test "initAllAudits does not crash":
-    # Simply verify that calling initAllAudits doesn't cause any errors.
-    # This tests that all enabled audit modules can be initialized.
-    initAllAudits()
-    check true  # If we got here, no crash
+checkAuditKindValues()
+checkIsAuditEnabled()
+checkGetEnabledAudits()
+checkInitAllAudits()
+checkFlushAllAudits()
+checkResetAllAudits()
+checkAuditLifecycle()
+checkMultipleEnvironments()
 
-  test "initAllAudits can be called multiple times":
-    initAllAudits()
-    initAllAudits()
-    check true  # Idempotent, no crash
-
-# =============================================================================
-# Audit Manager - Flush
-# =============================================================================
-
-suite "AuditManager - flushAllAudits":
-  test "flushAllAudits does not crash with valid environment":
-    let env = makeEmptyEnv()
-    initAllAudits()
-    flushAllAudits(env, 0)
-    check true  # If we got here, no crash
-
-  test "flushAllAudits works at various step counts":
-    let env = makeEmptyEnv()
-    initAllAudits()
-    flushAllAudits(env, 0)
-    flushAllAudits(env, 100)
-    flushAllAudits(env, 1000)
-    check true  # No crash
-
-# =============================================================================
-# Audit Manager - Reset
-# =============================================================================
-
-suite "AuditManager - resetAllAudits":
-  test "resetAllAudits does not crash":
-    initAllAudits()
-    resetAllAudits()
-    check true  # If we got here, no crash
-
-  test "resetAllAudits can be called multiple times":
-    initAllAudits()
-    resetAllAudits()
-    resetAllAudits()
-    check true  # Idempotent, no crash
-
-  test "reset then flush works":
-    let env = makeEmptyEnv()
-    initAllAudits()
-    flushAllAudits(env, 50)
-    resetAllAudits()
-    flushAllAudits(env, 0)  # After reset, step starts at 0
-    check true
-
-# =============================================================================
-# Integration Tests
-# =============================================================================
-
-suite "AuditManager - Integration":
-  test "full lifecycle: init, flush, reset, flush":
-    let env = makeEmptyEnv()
-
-    # Initialize
-    initAllAudits()
-
-    # Simulate some steps
-    for step in 0 ..< 10:
-      env.stepNoop()
-      flushAllAudits(env, step)
-
-    # Reset
-    resetAllAudits()
-
-    # More steps after reset
-    for step in 0 ..< 5:
-      flushAllAudits(env, step)
-
-    check true
-
-  test "audit manager works with multiple environments":
-    let env1 = makeEmptyEnv()
-    let env2 = makeEmptyEnv()
-
-    initAllAudits()
-
-    flushAllAudits(env1, 0)
-    flushAllAudits(env2, 0)
-    flushAllAudits(env1, 1)
-    flushAllAudits(env2, 1)
-
-    check true
+echo "Audit manager domain checks passed"

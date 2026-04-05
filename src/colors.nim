@@ -1,8 +1,4 @@
-# ---------------------------------------------------------------------------
-# FlatUIColors Palette (matching mettascope)
-# ---------------------------------------------------------------------------
-# The best color palette - Flat UI colors for consistent theming across the UI.
-# See: https://flatuicolors.com/
+## Shared color constants and tint helpers.
 
 const
   # Primary colors
@@ -32,12 +28,6 @@ const
   Silver*      = parseHtmlColor("#bdc3c7").color  ## Silver
   Gray*        = parseHtmlColor("#95a5a6").color  ## Concrete
   DarkGray*    = parseHtmlColor("#7f8c8d").color  ## Asbestos
-
-# ---------------------------------------------------------------------------
-# UIColors - Semantic mapping for UI components
-# ---------------------------------------------------------------------------
-# Maps FlatUIColors to UI purposes for consistent theming.
-# Use these instead of hardcoded colors in UI code.
 
 const
   # Panel backgrounds
@@ -94,11 +84,6 @@ const
 
   # Viewport indicator
   UiViewportOutline* = color(1.0, 1.0, 1.0, 0.7)  ## Minimap viewport outline
-
-# ---------------------------------------------------------------------------
-# Rendering Colors - Semantic mapping for game rendering
-# ---------------------------------------------------------------------------
-# Maps inline color literals to named constants for consistent theming.
 
 const
   # Neutral/fallback colors
@@ -214,10 +199,6 @@ const
   DebrisStoneColor*  = color(0.50, 0.50, 0.50, 1.0)  ## Stone debris (gray)
   DebrisBrickColor*  = color(0.70, 0.40, 0.25, 1.0)  ## Brick debris (terracotta)
 
-# ---------------------------------------------------------------------------
-# Team Colors (game-specific)
-# ---------------------------------------------------------------------------
-
 const WarmTeamPalette* = [
   # Eight bright, evenly spaced tints (similar brightness, varied hue; away from clippy purple)
   color(0.910, 0.420, 0.420, 1.0),  # team 0: soft red        (#e86b6b)
@@ -231,11 +212,11 @@ const WarmTeamPalette* = [
 ]
 
 proc withAlpha*(c: Color, a: float32): Color {.inline.} =
-  ## Return a copy of `c` with its alpha replaced by `a`.
-  ## Avoids the verbose `color(c.r, c.g, c.b, newAlpha)` pattern.
+  ## Returns a copy of `c` with its alpha replaced by `a`.
   color(c.r, c.g, c.b, a)
 
 proc applyActionTint(env: Environment, pos: IVec2, tintColor: TileColor, duration: int8, tintCode: uint8) =
+  ## Applies one action tint and keeps observation tint state in sync.
   if not isValidPos(pos) or env.tintLocked[pos.x][pos.y]:
     return
   env.actionTintColor[pos.x][pos.y] = tintColor
@@ -244,13 +225,14 @@ proc applyActionTint(env: Environment, pos: IVec2, tintColor: TileColor, duratio
   let nextCode =
     if existing == ActionTintNone or existing == tintCode: tintCode else: ActionTintMixed
   env.actionTintCode[pos.x][pos.y] = nextCode
-  # Keep observation tint layer in sync so agents can “see” recent combat actions
+  # Keep observation tint state in sync with recent combat actions.
   env.updateObservations(TintLayer, pos, nextCode.int)
   if not env.actionTintFlags[pos.x][pos.y]:
     env.actionTintFlags[pos.x][pos.y] = true
     env.actionTintPositions.add(pos)
 
 proc combinedTileTint*(env: Environment, x, y: int): TileColor =
+  ## Returns the combined base and overlay tint for one tile.
   let base = env.baseTintColors[x][y]
   if env.tintLocked[x][y]:
     return base
@@ -276,6 +258,7 @@ proc isThingFrozen*(thing: Thing, env: Environment): bool {.inline.} =
   thing.frozen > 0 or isTileFrozen(thing.pos, env)
 
 proc applyBiomeBaseColors*(env: Environment) =
+  ## Rebuilds cached base tint colors from biome layout and edge blending.
   template baseColor(biome: BiomeType): TileColor =
     case biome:
     of BiomeBaseType: BaseTileColorDefault

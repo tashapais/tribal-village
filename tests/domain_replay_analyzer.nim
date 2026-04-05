@@ -1,199 +1,207 @@
-import std/[unittest]
-import replay_analyzer
-import common_types
+## Domain checks for replay analyzer scoring and feedback helpers.
 
-suite "Replay Analyzer - Action Profile":
-  test "actionProfile normalizes counts to frequencies":
-    var strategy = TeamStrategy(teamId: 0, agentCount: 1)
-    strategy.actionDist.counts[ActionAttack] = 50
-    strategy.actionDist.counts[ActionUse] = 30
-    strategy.actionDist.counts[ActionBuild] = 20
-    strategy.actionDist.total = 100
-    let profile = actionProfile(strategy)
-    check abs(profile[ActionAttack] - 0.5) < 0.001
-    check abs(profile[ActionUse] - 0.3) < 0.001
-    check abs(profile[ActionBuild] - 0.2) < 0.001
+import
+  replay_analyzer, common_types
 
-  test "actionProfile with zero total returns all zeros":
-    var strategy = TeamStrategy(teamId: 0, agentCount: 1)
-    strategy.actionDist.total = 0
-    let profile = actionProfile(strategy)
-    for i in 0 ..< ActionVerbCount:
-      check profile[i] == 0.0
+proc checkActionProfile() =
+  ## Verify action-profile normalization behavior.
+  echo "Testing replay analyzer action profile"
 
-  test "actionProfile sums to approximately 1.0":
-    var strategy = TeamStrategy(teamId: 0, agentCount: 1)
-    strategy.actionDist.counts[0] = 10
-    strategy.actionDist.counts[1] = 20
-    strategy.actionDist.counts[ActionAttack] = 30
-    strategy.actionDist.counts[ActionUse] = 40
-    strategy.actionDist.total = 100
-    let profile = actionProfile(strategy)
-    var sum: float32 = 0.0
-    for i in 0 ..< ActionVerbCount:
-      sum += profile[i]
-    check abs(sum - 1.0) < 0.01
+  var strategy = TeamStrategy(teamId: 0, agentCount: 1)
+  strategy.actionDist.counts[ActionAttack] = 50
+  strategy.actionDist.counts[ActionUse] = 30
+  strategy.actionDist.counts[ActionBuild] = 20
+  strategy.actionDist.total = 100
+  let profile = actionProfile(strategy)
+  doAssert abs(profile[ActionAttack] - 0.5) < 0.001
+  doAssert abs(profile[ActionUse] - 0.3) < 0.001
+  doAssert abs(profile[ActionBuild] - 0.2) < 0.001
 
-suite "Replay Analyzer - Combat Efficiency":
-  test "combatEfficiency is hit rate":
-    var strategy = TeamStrategy(teamId: 0)
-    strategy.combat.attacks = 100
-    strategy.combat.hits = 75
-    check abs(combatEfficiency(strategy) - 0.75) < 0.001
+  strategy = TeamStrategy(teamId: 0, agentCount: 1)
+  strategy.actionDist.total = 0
+  let zeroProfile = actionProfile(strategy)
+  for verb in 0 ..< ActionVerbCount:
+    doAssert zeroProfile[verb] == 0.0
 
-  test "combatEfficiency returns 0 with no attacks":
-    var strategy = TeamStrategy(teamId: 0)
-    strategy.combat.attacks = 0
-    check combatEfficiency(strategy) == 0.0
+  strategy = TeamStrategy(teamId: 0, agentCount: 1)
+  strategy.actionDist.counts[0] = 10
+  strategy.actionDist.counts[1] = 20
+  strategy.actionDist.counts[ActionAttack] = 30
+  strategy.actionDist.counts[ActionUse] = 40
+  strategy.actionDist.total = 100
+  let summedProfile = actionProfile(strategy)
+  var total: float32 = 0.0
+  for verb in 0 ..< ActionVerbCount:
+    total += summedProfile[verb]
+  doAssert abs(total - 1.0) < 0.01
 
-  test "combatEfficiency perfect accuracy":
-    var strategy = TeamStrategy(teamId: 0)
-    strategy.combat.attacks = 50
-    strategy.combat.hits = 50
-    check abs(combatEfficiency(strategy) - 1.0) < 0.001
+proc checkCombatEfficiency() =
+  ## Verify combat-efficiency scoring behavior.
+  echo "Testing replay analyzer combat efficiency"
 
-suite "Replay Analyzer - Economy Score":
-  test "economyScore ratio of gather to total":
-    var strategy = TeamStrategy(teamId: 0)
-    strategy.resources.gatherActions = 80
-    strategy.resources.buildActions = 20
-    check abs(economyScore(strategy) - 0.8) < 0.001
+  var strategy = TeamStrategy(teamId: 0)
+  strategy.combat.attacks = 100
+  strategy.combat.hits = 75
+  doAssert abs(combatEfficiency(strategy) - 0.75) < 0.001
 
-  test "economyScore returns 0 with no actions":
-    var strategy = TeamStrategy(teamId: 0)
-    strategy.resources.gatherActions = 0
-    strategy.resources.buildActions = 0
-    check economyScore(strategy) == 0.0
+  strategy = TeamStrategy(teamId: 0)
+  strategy.combat.attacks = 0
+  doAssert combatEfficiency(strategy) == 0.0
 
-  test "economyScore all gather returns 1.0":
-    var strategy = TeamStrategy(teamId: 0)
-    strategy.resources.gatherActions = 100
-    strategy.resources.buildActions = 0
-    check abs(economyScore(strategy) - 1.0) < 0.001
+  strategy = TeamStrategy(teamId: 0)
+  strategy.combat.attacks = 50
+  strategy.combat.hits = 50
+  doAssert abs(combatEfficiency(strategy) - 1.0) < 0.001
 
-  test "economyScore all build returns 0.0":
-    var strategy = TeamStrategy(teamId: 0)
-    strategy.resources.gatherActions = 0
-    strategy.resources.buildActions = 100
-    check economyScore(strategy) == 0.0
+proc checkEconomyScore() =
+  ## Verify economy-score ratios and fallbacks.
+  echo "Testing replay analyzer economy score"
 
-suite "Replay Analyzer - Strategy Score":
-  test "strategyScore is clamped between 0 and 1":
-    var strategy = TeamStrategy(teamId: 0, agentCount: 1)
-    strategy.finalReward = 10.0  # Very high
-    strategy.won = true
-    strategy.combat.attacks = 100
-    strategy.combat.hits = 100
-    let score = strategyScore(strategy)
-    check score >= 0.0
-    check score <= 1.0
+  var strategy = TeamStrategy(teamId: 0)
+  strategy.resources.gatherActions = 80
+  strategy.resources.buildActions = 20
+  doAssert abs(economyScore(strategy) - 0.8) < 0.001
 
-  test "strategyScore winner gets bonus":
-    var winnerStrategy = TeamStrategy(teamId: 0, agentCount: 1)
-    winnerStrategy.finalReward = 0.5
-    winnerStrategy.won = true
+  strategy = TeamStrategy(teamId: 0)
+  doAssert economyScore(strategy) == 0.0
 
-    var loserStrategy = TeamStrategy(teamId: 1, agentCount: 1)
-    loserStrategy.finalReward = 0.5
-    loserStrategy.won = false
+  strategy = TeamStrategy(teamId: 0)
+  strategy.resources.gatherActions = 100
+  doAssert abs(economyScore(strategy) - 1.0) < 0.001
 
-    check strategyScore(winnerStrategy) > strategyScore(loserStrategy)
+  strategy = TeamStrategy(teamId: 0)
+  strategy.resources.buildActions = 100
+  doAssert economyScore(strategy) == 0.0
 
-  test "strategyScore zero reward no combat":
-    var strategy = TeamStrategy(teamId: 0, agentCount: 1)
-    strategy.finalReward = 0.0
-    strategy.won = false
-    check strategyScore(strategy) == 0.0
+proc checkStrategyScore() =
+  ## Verify composite strategy scoring and winner bonuses.
+  echo "Testing replay analyzer strategy score"
 
-  test "strategyScore with combat efficiency adds bonus":
-    var noCombat = TeamStrategy(teamId: 0, agentCount: 1)
-    noCombat.finalReward = 0.5
+  var strategy = TeamStrategy(teamId: 0, agentCount: 1)
+  strategy.finalReward = 10.0
+  strategy.won = true
+  strategy.combat.attacks = 100
+  strategy.combat.hits = 100
+  let clampedScore = strategyScore(strategy)
+  doAssert clampedScore >= 0.0
+  doAssert clampedScore <= 1.0
 
-    var withCombat = TeamStrategy(teamId: 0, agentCount: 1)
-    withCombat.finalReward = 0.5
-    withCombat.combat.attacks = 100
-    withCombat.combat.hits = 80
+  var winnerStrategy = TeamStrategy(teamId: 0, agentCount: 1)
+  winnerStrategy.finalReward = 0.5
+  winnerStrategy.won = true
 
-    check strategyScore(withCombat) > strategyScore(noCombat)
+  var loserStrategy = TeamStrategy(teamId: 1, agentCount: 1)
+  loserStrategy.finalReward = 0.5
+  loserStrategy.won = false
+  doAssert strategyScore(winnerStrategy) > strategyScore(loserStrategy)
 
-suite "Replay Analyzer - Dominant Action Verb":
-  test "dominantActionVerb returns most frequent":
-    let seq_data = ActionSequence(
-      verbs: @[ActionAttack, ActionAttack, ActionAttack, ActionUse, ActionBuild],
-      teamReward: 1.0
-    )
-    check dominantActionVerb(seq_data) == ActionAttack
+  strategy = TeamStrategy(teamId: 0, agentCount: 1)
+  doAssert strategyScore(strategy) == 0.0
 
-  test "dominantActionVerb single verb":
-    let seq_data = ActionSequence(verbs: @[ActionBuild], teamReward: 0.5)
-    check dominantActionVerb(seq_data) == ActionBuild
+  var noCombat = TeamStrategy(teamId: 0, agentCount: 1)
+  noCombat.finalReward = 0.5
+  var withCombat = TeamStrategy(teamId: 0, agentCount: 1)
+  withCombat.finalReward = 0.5
+  withCombat.combat.attacks = 100
+  withCombat.combat.hits = 80
+  doAssert strategyScore(withCombat) > strategyScore(noCombat)
 
-  test "dominantActionVerb empty returns 0":
-    let seq_data = ActionSequence(verbs: @[], teamReward: 0.0)
-    check dominantActionVerb(seq_data) == 0
+proc checkDominantActionVerb() =
+  ## Verify dominant action extraction from sequences.
+  echo "Testing replay analyzer dominant action verb"
 
-suite "Replay Analyzer - Feedback":
-  test "applyReplayFeedback updates role fitness":
-    var catalog = initRoleCatalog()
-    let opt = OptionDef(name: "TestBehavior")
-    discard catalog.addBehavior(opt, BehaviorCustom)
-    var role = newRoleDef(catalog, "TestRole", @[], "test")
-    role.games = 5
-    role.fitness = 0.3
-    discard registerRole(catalog, role)
+  let attackSeq = ActionSequence(
+    verbs: @[ActionAttack, ActionAttack, ActionAttack, ActionUse, ActionBuild],
+    teamReward: 1.0
+  )
+  doAssert dominantActionVerb(attackSeq) == ActionAttack
 
-    var analysis = ReplayAnalysis()
-    var teamStrategy = TeamStrategy(
-      teamId: 0, agentCount: 2,
-      finalReward: 1.0, won: true
-    )
-    teamStrategy.combat.attacks = 50
-    teamStrategy.combat.hits = 30
-    analysis.teams.add teamStrategy
-    analysis.winningTeamId = 0
+  let buildSeq = ActionSequence(verbs: @[ActionBuild], teamReward: 0.5)
+  doAssert dominantActionVerb(buildSeq) == ActionBuild
 
-    let fitnessBefore = catalog.roles[0].fitness
-    applyReplayFeedback(catalog, analysis)
-    # Fitness should have changed toward the strategy score
-    check catalog.roles[0].fitness != fitnessBefore
+  let emptySeq = ActionSequence(verbs: @[], teamReward: 0.0)
+  doAssert dominantActionVerb(emptySeq) == 0
 
-  test "applyReplayFeedback no-op with empty analysis":
-    var catalog = initRoleCatalog()
-    var role = newRoleDef(catalog, "TestRole", @[], "test")
-    role.games = 5
-    role.fitness = 0.5
-    discard registerRole(catalog, role)
+proc checkReplayFeedback() =
+  ## Verify replay feedback updates role fitness as expected.
+  echo "Testing replay analyzer feedback"
 
-    let analysis = ReplayAnalysis()
-    let fitnessBefore = catalog.roles[0].fitness
-    applyReplayFeedback(catalog, analysis)
-    check catalog.roles[0].fitness == fitnessBefore
+  var catalog = initRoleCatalog()
+  let opt = OptionDef(name: "TestBehavior")
+  discard catalog.addBehavior(opt, BehaviorCustom)
 
-  test "applyWinnerBoost only boosts high-fitness roles":
-    var catalog = initRoleCatalog()
-    var lowRole = newRoleDef(catalog, "LowRole", @[], "test")
-    lowRole.games = 5
-    lowRole.fitness = 0.2  # Below 0.5 threshold
-    discard registerRole(catalog, lowRole)
+  var role = newRoleDef(catalog, "TestRole", @[], "test")
+  role.games = 5
+  role.fitness = 0.3
+  discard registerRole(catalog, role)
 
-    var highRole = newRoleDef(catalog, "HighRole", @[], "test")
-    highRole.games = 5
-    highRole.fitness = 0.6  # Above 0.5 threshold
-    discard registerRole(catalog, highRole)
+  var analysis = ReplayAnalysis()
+  var teamStrategy = TeamStrategy(
+    teamId: 0,
+    agentCount: 2,
+    finalReward: 1.0,
+    won: true
+  )
+  teamStrategy.combat.attacks = 50
+  teamStrategy.combat.hits = 30
+  analysis.teams.add(teamStrategy)
+  analysis.winningTeamId = 0
 
-    var analysis = ReplayAnalysis(winningTeamId: 0)
-    var teamStrategy = TeamStrategy(
-      teamId: 0, agentCount: 1,
-      finalReward: 1.0, won: true
-    )
-    teamStrategy.combat.attacks = 20
-    teamStrategy.combat.hits = 15
-    analysis.teams.add teamStrategy
+  let fitnessBefore = catalog.roles[0].fitness
+  applyReplayFeedback(catalog, analysis)
+  doAssert catalog.roles[0].fitness != fitnessBefore
 
-    let lowBefore = catalog.roles[0].fitness
-    let highBefore = catalog.roles[1].fitness
-    applyWinnerBoost(catalog, analysis)
-    # Low fitness role should not change (below threshold)
-    check catalog.roles[0].fitness == lowBefore
-    # High fitness role should get boosted
-    check catalog.roles[1].fitness != highBefore
+  var emptyCatalog = initRoleCatalog()
+  var emptyRole = newRoleDef(emptyCatalog, "TestRole", @[], "test")
+  emptyRole.games = 5
+  emptyRole.fitness = 0.5
+  discard registerRole(emptyCatalog, emptyRole)
+
+  let emptyAnalysis = ReplayAnalysis()
+  let emptyFitnessBefore = emptyCatalog.roles[0].fitness
+  applyReplayFeedback(emptyCatalog, emptyAnalysis)
+  doAssert emptyCatalog.roles[0].fitness == emptyFitnessBefore
+
+proc checkWinnerBoost() =
+  ## Verify winner boosts only affect sufficiently fit roles.
+  echo "Testing replay analyzer winner boost"
+
+  var catalog = initRoleCatalog()
+
+  var lowRole = newRoleDef(catalog, "LowRole", @[], "test")
+  lowRole.games = 5
+  lowRole.fitness = 0.2
+  discard registerRole(catalog, lowRole)
+
+  var highRole = newRoleDef(catalog, "HighRole", @[], "test")
+  highRole.games = 5
+  highRole.fitness = 0.6
+  discard registerRole(catalog, highRole)
+
+  var analysis = ReplayAnalysis(winningTeamId: 0)
+  var teamStrategy = TeamStrategy(
+    teamId: 0,
+    agentCount: 1,
+    finalReward: 1.0,
+    won: true
+  )
+  teamStrategy.combat.attacks = 20
+  teamStrategy.combat.hits = 15
+  analysis.teams.add(teamStrategy)
+
+  let
+    lowBefore = catalog.roles[0].fitness
+    highBefore = catalog.roles[1].fitness
+  applyWinnerBoost(catalog, analysis)
+  doAssert catalog.roles[0].fitness == lowBefore
+  doAssert catalog.roles[1].fitness != highBefore
+
+checkActionProfile()
+checkCombatEfficiency()
+checkEconomyScore()
+checkStrategyScore()
+checkDominantActionVerb()
+checkReplayFeedback()
+checkWinnerBoost()
+
+echo "Replay analyzer domain checks passed"

@@ -1,24 +1,14 @@
-## econ_audit.nim - Resource economy flow tracker with console dashboard
-##
-## Gated behind -d:econAudit compile flag. Zero-cost when disabled.
-## Tracks all resource flows: gathering, depositing, building costs, unit training,
-## market trades, relic gold generation, trade ship gold.
-##
-## Format: [Step N] TEAM_COLOR: income/spend summary
-## Dashboard printed every EconAuditDashboardInterval steps showing per-team:
-## - Resource stocks
-## - Income/spend rates (per 100 steps)
-## - Net flow
-## - Total gathered/spent
+## Resource economy flow tracker and dashboard.
 
 when defined(econAudit):
-  import std/[strformat, os]
-  import types
-  import items
+  import
+    std/strformat,
+    constants, envconfig, types
 
   const
     EconAuditDashboardInterval* = 100  ## Print dashboard every N steps
     EconAuditWindowSize* = 100         ## Steps to average rates over
+    ResourceOrder = [ResourceFood, ResourceWood, ResourceGold, ResourceStone]
 
   type
     ResourceFlowSource* = enum
@@ -35,45 +25,24 @@ when defined(econAudit):
       rfsFarmReseed      ## Farm reseed wood cost
       rfsRefund          ## Cancelled queue refunds
 
-    ResourceFlowEvent* = object
-      step*: int
-      teamId*: int
-      resource*: StockpileResource
-      amount*: int        ## Positive for income, negative for spending
-      source*: ResourceFlowSource
-
     TeamResourceStats* = object
-      ## Per-team resource tracking
       totalGained*: array[StockpileResource, int]
       totalSpent*: array[StockpileResource, int]
       gainedBySource*: array[ResourceFlowSource, array[StockpileResource, int]]
-      ## Sliding window for rate calculation
       recentGains*: array[StockpileResource, int]
       recentSpends*: array[StockpileResource, int]
       windowStartStep*: int
 
     EconAuditState* = object
-      enabled*: bool
-      verboseMode*: bool          ## Print individual events
+      verboseMode*: bool
       teamStats*: array[MapRoomObjectsTeams, TeamResourceStats]
       lastDashboardStep*: int
       initialized*: bool
 
-  const TeamColorNames: array[8, string] = [
-    "RED", "ORANGE", "YELLOW", "GREEN", "MAGENTA", "BLUE", "GRAY", "PINK"
-  ]
-
   var econAuditState*: EconAuditState
 
-  proc teamColorName(teamId: int): string =
-    if teamId >= 0 and teamId < TeamColorNames.len:
-      TeamColorNames[teamId]
-    elif teamId == 8:
-      "GOBLIN"
-    else:
-      "NEUTRAL"
-
   proc resourceName(res: StockpileResource): string =
+    ## Returns the lowercase display name for one resource.
     case res
     of ResourceFood: "food"
     of ResourceWood: "wood"
@@ -83,6 +52,7 @@ when defined(econAudit):
     of ResourceNone: "none"
 
   proc sourceName(source: ResourceFlowSource): string =
+    ## Returns the lowercase display name for one flow source.
     case source
     of rfsGathering: "gathered"
     of rfsDeposit: "deposited"
@@ -96,11 +66,16 @@ when defined(econAudit):
     of rfsFarmReseed: "farm_reseed"
     of rfsRefund: "refund"
 
+  proc resetRecentFlows(stats: var TeamResourceStats) =
+    ## Clears the sliding-window counters for one team.
+    for res in StockpileResource:
+      stats.recentGains[res] = 0
+      stats.recentSpends[res] = 0
+
   proc initEconAudit*() =
-    let verboseEnv = getEnv("TV_ECON_VERBOSE", "")
+    ## Initializes economy audit state from environment settings.
     econAuditState = EconAuditState(
-      enabled: true,
-      verboseMode: verboseEnv notin ["", "0", "false"],
+      verboseMode: parseEnvBool("TV_ECON_VERBOSE", false),
       lastDashboardStep: 0,
       initialized: true
     )
@@ -110,11 +85,17 @@ when defined(econAudit):
       )
 
   proc ensureEconAuditInit*() =
+    ## Initializes economy audit state on first use.
     if not econAuditState.initialized:
       initEconAudit()
 
-  proc recordFlow*(teamId: int, res: StockpileResource, amount: int,
-                   source: ResourceFlowSource, step: int) =
+  proc recordFlow*(
+    teamId: int,
+    res: StockpileResource,
+    amount: int,
+    source: ResourceFlowSource,
+    step: int
+  ) =
     ## Record a resource flow event.
     ## Positive amount = income, negative = spending.
     ensureEconAuditInit()
@@ -125,11 +106,8 @@ when defined(econAudit):
 
     var stats = addr econAuditState.teamStats[teamId]
 
-    # Reset window if needed
     if step - stats.windowStartStep >= EconAuditWindowSize:
-      for r in StockpileResource:
-        stats.recentGains[r] = 0
-        stats.recentSpends[r] = 0
+      resetRecentFlows(stats[])
       stats.windowStartStep = step
 
     if amount > 0:
@@ -141,56 +119,21 @@ when defined(econAudit):
       stats.totalSpent[res] += absAmount
       stats.recentSpends[res] += absAmount
 
-    # Verbose mode: print individual events
     if econAuditState.verboseMode:
       let sign = if amount > 0: "+" else: ""
-      echo &"[Step {step}] {teamColorName(teamId)} {sign}{amount} {resourceName(res)} ({sourceName(source)})"
+      echo(
+        &"[Step {step}] {teamColorName(teamId)} {sign}{amount} " &
+        &"{resourceName(res)} ({sourceName(source)})"
+      )
 
-  # Convenience procs for specific flow types
-
-  proc recordGathering*(teamId: int, res: StockpileResource, amount: int, step: int) =
-    recordFlow(teamId, res, amount, rfsGathering, step)
-
-  proc recordDeposit*(teamId: int, res: StockpileResource, amount: int, step: int) =
-    recordFlow(teamId, res, amount, rfsDeposit, step)
-
-  proc recordBuildingCost*(teamId: int, costs: openArray[tuple[res: StockpileResource, count: int]], step: int) =
-    for cost in costs:
-      recordFlow(teamId, cost.res, -cost.count, rfsBuildingCost, step)
-
-  proc recordTrainingCost*(teamId: int, costs: openArray[tuple[res: StockpileResource, count: int]], step: int) =
-    for cost in costs:
-      recordFlow(teamId, cost.res, -cost.count, rfsUnitTraining, step)
-
-  proc recordResearchCost*(teamId: int, costs: openArray[tuple[res: StockpileResource, count: int]], step: int) =
+  proc recordResearchCost*(
+    teamId: int,
+    costs: openArray[tuple[res: StockpileResource, count: int]],
+    step: int
+  ) =
+    ## Records one batch of research costs.
     for cost in costs:
       recordFlow(teamId, cost.res, -cost.count, rfsTechResearch, step)
-
-  proc recordMarketBuy*(teamId: int, res: StockpileResource, amount: int,
-                        goldCost: int, step: int) =
-    ## Buying: gain resource, spend gold
-    recordFlow(teamId, res, amount, rfsMarketBuy, step)
-    recordFlow(teamId, ResourceGold, -goldCost, rfsMarketBuy, step)
-
-  proc recordMarketSell*(teamId: int, res: StockpileResource, amount: int,
-                         goldGained: int, step: int) =
-    ## Selling: spend resource, gain gold
-    recordFlow(teamId, res, -amount, rfsMarketSell, step)
-    recordFlow(teamId, ResourceGold, goldGained, rfsMarketSell, step)
-
-  proc recordRelicGold*(teamId: int, amount: int, step: int) =
-    recordFlow(teamId, ResourceGold, amount, rfsRelicGold, step)
-
-  proc recordTradeShipGold*(teamId: int, amount: int, step: int) =
-    recordFlow(teamId, ResourceGold, amount, rfsTradeShip, step)
-
-  proc recordFarmReseed*(teamId: int, woodCost: int, step: int) =
-    if woodCost > 0:
-      recordFlow(teamId, ResourceWood, -woodCost, rfsFarmReseed, step)
-
-  proc recordRefund*(teamId: int, costs: openArray[tuple[res: StockpileResource, count: int]], step: int) =
-    for cost in costs:
-      recordFlow(teamId, cost.res, cost.count, rfsRefund, step)
 
   proc printEconDashboard*(env: Environment, step: int) =
     ## Print economy dashboard for all teams.
@@ -198,28 +141,20 @@ when defined(econAudit):
     echo "======================================================================"
     echo &"  ECONOMY DASHBOARD - Step {step}"
     echo "======================================================================"
-
-    const ResourceOrder = [ResourceFood, ResourceWood, ResourceGold, ResourceStone]
-
-    # Header
     echo "Team       |       Food |       Wood |       Gold |      Stone"
     echo "----------------------------------------------------------------------"
 
     for teamId in 0 ..< MapRoomObjectsTeams:
       let stats = econAuditState.teamStats[teamId]
-
-      # Current stocks (read from environment)
       var stockLine = &"{teamColorName(teamId):<10} |"
       for res in ResourceOrder:
         let stock = env.teamStockpiles[teamId].counts[res]
         stockLine &= &" {stock:>10} |"
       echo stockLine
 
-      # Calculate rates per 100 steps
       let windowSteps = max(1, step - stats.windowStartStep)
       let rateMultiplier = 100.0 / float(windowSteps)
 
-      # Income rate
       var incomeRate = &"  +income  |"
       for res in ResourceOrder:
         let rate = int(float(stats.recentGains[res]) * rateMultiplier)
@@ -229,7 +164,6 @@ when defined(econAudit):
           incomeRate &= &" {\"\":>10} |"
       echo incomeRate
 
-      # Spend rate
       var spendRate = &"  -spend   |"
       for res in ResourceOrder:
         let rate = int(float(stats.recentSpends[res]) * rateMultiplier)
@@ -239,7 +173,6 @@ when defined(econAudit):
           spendRate &= &" {\"\":>10} |"
       echo spendRate
 
-      # Net flow
       var netFlow = &"  =net     |"
       for res in ResourceOrder:
         let gain = int(float(stats.recentGains[res]) * rateMultiplier)
@@ -253,7 +186,6 @@ when defined(econAudit):
 
       echo "----------------------------------------------------------------------"
 
-    # Totals summary
     echo ""
     echo "======================================================================"
     echo "  TOTALS (All Time)"
@@ -278,9 +210,7 @@ when defined(econAudit):
         line &= &" {stats.totalSpent[res]:>10} |"
       echo line
 
-    # Income source breakdown (optional detailed view)
-    let detailedEnv = getEnv("TV_ECON_DETAILED", "")
-    if detailedEnv notin ["", "0", "false"]:
+    if parseEnvBool("TV_ECON_DETAILED", false):
       echo ""
       echo "======================================================================"
       echo "  INCOME BY SOURCE"

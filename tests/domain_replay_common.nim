@@ -1,176 +1,167 @@
-## Tests for replay_common.nim - Shared replay serialization helpers.
-##
-## Tests round-trip serialization of change series (step, value) pairs
-## and edge cases for parsing/serialization.
-##
-## Run: nim r --path:src tests/domain_replay_common.nim
+## Domain checks for shared replay serialization helpers.
 
-import std/[unittest, json]
-import replay_common
+import
+  std/json,
+  replay_common
 
-suite "Replay Common - serializeChanges":
-  test "serializeChanges produces [[step, value], ...] format":
-    let changes: ChangeSeries = @[
-      (step: 0, value: newJInt(10)),
-      (step: 5, value: newJInt(20)),
-      (step: 10, value: newJInt(30))
-    ]
-    let result = serializeChanges(changes)
-    check result.kind == JArray
-    check result.len == 3
-    check result[0][0].getInt() == 0
-    check result[0][1].getInt() == 10
-    check result[1][0].getInt() == 5
-    check result[1][1].getInt() == 20
-    check result[2][0].getInt() == 10
-    check result[2][1].getInt() == 30
+proc checkSerializeChanges() =
+  ## Verify serialization of replay change series.
+  echo "Testing replay common serializeChanges"
 
-  test "serializeChanges empty list produces empty array":
-    let changes: ChangeSeries = @[]
-    let result = serializeChanges(changes)
-    check result.kind == JArray
-    check result.len == 0
+  let changes: ChangeSeries = @[
+    (step: 0, value: newJInt(10)),
+    (step: 5, value: newJInt(20)),
+    (step: 10, value: newJInt(30))
+  ]
+  let serialized = serializeChanges(changes)
+  doAssert serialized.kind == JArray
+  doAssert serialized.len == 3
+  doAssert serialized[0][0].getInt() == 0
+  doAssert serialized[0][1].getInt() == 10
+  doAssert serialized[1][0].getInt() == 5
+  doAssert serialized[1][1].getInt() == 20
+  doAssert serialized[2][0].getInt() == 10
+  doAssert serialized[2][1].getInt() == 30
 
-  test "serializeChanges single entry":
-    let changes: ChangeSeries = @[(step: 42, value: newJString("hello"))]
-    let result = serializeChanges(changes)
-    check result.len == 1
-    check result[0][0].getInt() == 42
-    check result[0][1].getStr() == "hello"
+  let emptyChanges: ChangeSeries = @[]
+  let emptySerialized = serializeChanges(emptyChanges)
+  doAssert emptySerialized.kind == JArray
+  doAssert emptySerialized.len == 0
 
-  test "serializeChanges preserves value types":
-    let changes: ChangeSeries = @[
-      (step: 0, value: newJBool(true)),
-      (step: 1, value: newJFloat(3.14)),
-      (step: 2, value: newJNull()),
-      (step: 3, value: newJString("test"))
-    ]
-    let result = serializeChanges(changes)
-    check result[0][1].kind == JBool
-    check result[1][1].kind == JFloat
-    check result[2][1].kind == JNull
-    check result[3][1].kind == JString
+  let singleChanges: ChangeSeries = @[
+    (step: 42, value: newJString("hello"))
+  ]
+  let singleSerialized = serializeChanges(singleChanges)
+  doAssert singleSerialized.len == 1
+  doAssert singleSerialized[0][0].getInt() == 42
+  doAssert singleSerialized[0][1].getStr() == "hello"
 
-suite "Replay Common - parseChanges":
-  test "parseChanges round-trips with serializeChanges":
-    let original: ChangeSeries = @[
-      (step: 0, value: newJInt(100)),
-      (step: 10, value: newJInt(200)),
-      (step: 20, value: newJInt(300))
-    ]
-    let serialized = serializeChanges(original)
-    let parsed = parseChanges(serialized)
+  let typedChanges: ChangeSeries = @[
+    (step: 0, value: newJBool(true)),
+    (step: 1, value: newJFloat(3.14)),
+    (step: 2, value: newJNull()),
+    (step: 3, value: newJString("test"))
+  ]
+  let typedSerialized = serializeChanges(typedChanges)
+  doAssert typedSerialized[0][1].kind == JBool
+  doAssert typedSerialized[1][1].kind == JFloat
+  doAssert typedSerialized[2][1].kind == JNull
+  doAssert typedSerialized[3][1].kind == JString
 
-    check parsed.len == original.len
-    for i in 0 ..< parsed.len:
-      check parsed[i].step == original[i].step
-      check parsed[i].value == original[i].value
+proc checkParseChanges() =
+  ## Verify parsing of replay change series.
+  echo "Testing replay common parseChanges"
 
-  test "parseChanges handles empty array":
-    let empty = newJArray()
-    let result = parseChanges(empty)
-    check result.len == 0
+  let original: ChangeSeries = @[
+    (step: 0, value: newJInt(100)),
+    (step: 10, value: newJInt(200)),
+    (step: 20, value: newJInt(300))
+  ]
+  let
+    serialized = serializeChanges(original)
+    parsed = parseChanges(serialized)
+  doAssert parsed.len == original.len
+  for idx in 0 ..< parsed.len:
+    doAssert parsed[idx].step == original[idx].step
+    doAssert parsed[idx].value == original[idx].value
 
-  test "parseChanges handles nil input":
-    let result = parseChanges(nil)
-    check result.len == 0
+  let emptyParsed = parseChanges(newJArray())
+  doAssert emptyParsed.len == 0
 
-  test "parseChanges handles non-array input":
-    let obj = newJObject()
-    let result = parseChanges(obj)
-    check result.len == 0
+  let nilParsed = parseChanges(nil)
+  doAssert nilParsed.len == 0
 
-  test "parseChanges skips malformed entries":
-    var arr = newJArray()
-    # Valid entry
-    var valid = newJArray()
-    valid.add(newJInt(5))
-    valid.add(newJString("ok"))
-    arr.add(valid)
-    # Malformed: only one element
-    var bad = newJArray()
-    bad.add(newJInt(10))
-    arr.add(bad)
-    # Another valid entry
-    var valid2 = newJArray()
-    valid2.add(newJInt(15))
-    valid2.add(newJInt(99))
-    arr.add(valid2)
+  let objectParsed = parseChanges(newJObject())
+  doAssert objectParsed.len == 0
 
-    let result = parseChanges(arr)
-    check result.len == 2
-    check result[0].step == 5
-    check result[0].value.getStr() == "ok"
-    check result[1].step == 15
-    check result[1].value.getInt() == 99
+  var malformed = newJArray()
+  var valid = newJArray()
+  valid.add(newJInt(5))
+  valid.add(newJString("ok"))
+  malformed.add(valid)
+  var bad = newJArray()
+  bad.add(newJInt(10))
+  malformed.add(bad)
+  var validTwo = newJArray()
+  validTwo.add(newJInt(15))
+  validTwo.add(newJInt(99))
+  malformed.add(validTwo)
 
-  test "parseChanges handles non-array entries":
-    var arr = newJArray()
-    arr.add(newJInt(42))  # Not an array pair
-    var valid = newJArray()
-    valid.add(newJInt(0))
-    valid.add(newJBool(true))
-    arr.add(valid)
+  let malformedParsed = parseChanges(malformed)
+  doAssert malformedParsed.len == 2
+  doAssert malformedParsed[0].step == 5
+  doAssert malformedParsed[0].value.getStr() == "ok"
+  doAssert malformedParsed[1].step == 15
+  doAssert malformedParsed[1].value.getInt() == 99
 
-    let result = parseChanges(arr)
-    check result.len == 1
-    check result[0].step == 0
-    check result[0].value.getBool() == true
+  var mixed = newJArray()
+  mixed.add(newJInt(42))
+  var validBool = newJArray()
+  validBool.add(newJInt(0))
+  validBool.add(newJBool(true))
+  mixed.add(validBool)
 
-suite "Replay Common - lastChangeValue":
-  test "lastChangeValue returns last value":
-    var series = newJArray()
-    var entry1 = newJArray()
-    entry1.add(newJInt(0))
-    entry1.add(newJString("first"))
-    series.add(entry1)
-    var entry2 = newJArray()
-    entry2.add(newJInt(5))
-    entry2.add(newJString("second"))
-    series.add(entry2)
-    var entry3 = newJArray()
-    entry3.add(newJInt(10))
-    entry3.add(newJString("last"))
-    series.add(entry3)
+  let mixedParsed = parseChanges(mixed)
+  doAssert mixedParsed.len == 1
+  doAssert mixedParsed[0].step == 0
+  doAssert mixedParsed[0].value.getBool()
 
-    let result = lastChangeValue(series)
-    check result.getStr() == "last"
+proc checkLastChangeValue() =
+  ## Verify lookup of the last value in a change series.
+  echo "Testing replay common lastChangeValue"
 
-  test "lastChangeValue empty series returns null":
-    let empty = newJArray()
-    let result = lastChangeValue(empty)
-    check result.kind == JNull
+  var series = newJArray()
+  var firstEntry = newJArray()
+  firstEntry.add(newJInt(0))
+  firstEntry.add(newJString("first"))
+  series.add(firstEntry)
+  var secondEntry = newJArray()
+  secondEntry.add(newJInt(5))
+  secondEntry.add(newJString("second"))
+  series.add(secondEntry)
+  var lastEntry = newJArray()
+  lastEntry.add(newJInt(10))
+  lastEntry.add(newJString("last"))
+  series.add(lastEntry)
 
-  test "lastChangeValue nil returns null":
-    let result = lastChangeValue(nil)
-    check result.kind == JNull
+  let lastValue = lastChangeValue(series)
+  doAssert lastValue.getStr() == "last"
 
-  test "lastChangeValue single entry":
-    var series = newJArray()
-    var entry = newJArray()
-    entry.add(newJInt(0))
-    entry.add(newJInt(42))
-    series.add(entry)
+  let emptyValue = lastChangeValue(newJArray())
+  doAssert emptyValue.kind == JNull
 
-    let result = lastChangeValue(series)
-    check result.getInt() == 42
+  let nilValue = lastChangeValue(nil)
+  doAssert nilValue.kind == JNull
 
-  test "lastChangeValue handles various value types":
-    # Array value
-    var series = newJArray()
-    var entry = newJArray()
-    entry.add(newJInt(0))
-    var pos = newJArray()
-    pos.add(newJInt(10))
-    pos.add(newJInt(20))
-    entry.add(pos)
-    series.add(entry)
+  var singleSeries = newJArray()
+  var singleEntry = newJArray()
+  singleEntry.add(newJInt(0))
+  singleEntry.add(newJInt(42))
+  singleSeries.add(singleEntry)
+  let singleValue = lastChangeValue(singleSeries)
+  doAssert singleValue.getInt() == 42
 
-    let result = lastChangeValue(series)
-    check result.kind == JArray
-    check result[0].getInt() == 10
-    check result[1].getInt() == 20
+  var arraySeries = newJArray()
+  var arrayEntry = newJArray()
+  arrayEntry.add(newJInt(0))
+  var pos = newJArray()
+  pos.add(newJInt(10))
+  pos.add(newJInt(20))
+  arrayEntry.add(pos)
+  arraySeries.add(arrayEntry)
+  let arrayValue = lastChangeValue(arraySeries)
+  doAssert arrayValue.kind == JArray
+  doAssert arrayValue[0].getInt() == 10
+  doAssert arrayValue[1].getInt() == 20
 
-suite "Replay Common - Constants":
-  test "ReplayVersion is positive":
-    check ReplayVersion > 0
+proc checkConstants() =
+  ## Verify replay constants stay sane.
+  echo "Testing replay common constants"
+  doAssert ReplayVersion > 0, "ReplayVersion should be positive"
+
+checkSerializeChanges()
+checkParseChanges()
+checkLastChangeValue()
+checkConstants()
+
+echo "Replay common domain checks passed"

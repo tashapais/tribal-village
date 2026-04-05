@@ -1,6 +1,7 @@
-import std/[os, strutils, tables]
-import pixie
-import pixie/fileformats/png
+import
+  std/[os, strutils, tables],
+  pixie,
+  pixie/fileformats/png
 
 const
   DfViewRoot = "data/df_view"
@@ -17,6 +18,7 @@ type
     tileIndex: int
 
 proc generateDfViewAssets*() =
+  ## Generate DF-derived tile overrides when the source assets exist.
   when defined(emscripten):
     return
 
@@ -82,7 +84,13 @@ proc generateDfViewAssets*() =
   var created = 0
   var missing: seq[string]
 
-  proc writeScaledTile(outPath: string, tilesetIdx: int, tileIndex: int, sheetPath: string) =
+  proc writeScaledTile(
+    outPath: string,
+    tilesetIdx: int,
+    tileIndex: int,
+    sheetPath: string
+  ) =
+    ## Extract, scale, and write one tile override image.
     var sheet: Image
     if tilesetIdx in sheetCache:
       sheet = sheetCache[tilesetIdx]
@@ -105,7 +113,10 @@ proc generateDfViewAssets*() =
     inc created
 
   # Replace the road sprite with a constructed floor tile when available.
-  let overrideEntry = overrides.getOrDefault("ConstructedFloor", OverrideEntry(tilesetIdx: -1, tileIndex: -1))
+  let overrideEntry = overrides.getOrDefault(
+    "ConstructedFloor",
+    OverrideEntry(tilesetIdx: -1, tileIndex: -1)
+  )
   let sheetPath = tilesets.getOrDefault(overrideEntry.tilesetIdx, "")
   if overrideEntry.tilesetIdx < 0 or sheetPath.len == 0 or not fileExists(sheetPath):
     if "road" notin missing:

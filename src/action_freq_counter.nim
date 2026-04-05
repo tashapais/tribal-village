@@ -1,15 +1,15 @@
-## action_freq_counter.nim - Action frequency counter per unit type per step
+## Count actions per unit type across reporting windows.
 ##
-## Gated behind -d:actionFreqCounter compile flag. Zero-cost when disabled.
-## Tracks per-step action distributions broken down by unit type.
-## Prints periodic aggregate reports every N steps.
+## Gated behind `-d:actionFreqCounter` and compiled out when disabled.
 
 when defined(actionFreqCounter):
-  import std/[strutils, os]
+  import
+    std/strutils,
+    common_types, envconfig, types
 
   const
-    VerbCount = ActionVerbCount  # 11 verbs (0-10)
-    UnitTypeCount = ord(UnitScorpion) + 1  # 31 unit types
+    VerbCount = ActionVerbCount
+    UnitTypeCount = ord(UnitScorpion) + 1
     VerbNames: array[VerbCount, string] = [
       "noop", "move", "attack", "use", "swap",
       "put", "plant_lantern", "plant_resource", "build", "orient",
@@ -18,42 +18,54 @@ when defined(actionFreqCounter):
 
   type
     ActionFreqCounterState* = object
-      ## Per-step counters (reset each step)
+      ## Per-step counters reset every step.
       stepUnitVerbCounts: array[UnitTypeCount, array[VerbCount, int]]
       stepUnitTotals: array[UnitTypeCount, int]
       stepTotal: int
-      ## Aggregate counters (reset each report interval)
+      ## Aggregate counters reset every report interval.
       aggUnitVerbCounts: array[UnitTypeCount, array[VerbCount, int]]
       aggUnitTotals: array[UnitTypeCount, int]
       aggTotal: int
       aggStepCount: int
-      ## Config
       reportInterval: int
-      lastReportStep: int
 
-  var actionFreqState*: ActionFreqCounterState
-  var actionFreqInitialized = false
+  var
+    actionFreqState*: ActionFreqCounterState
+    actionFreqInitialized = false
 
   proc initActionFreqCounter*() =
+    ## Initialize the action-frequency counter from environment settings.
     actionFreqState = ActionFreqCounterState(
       reportInterval: max(1, parseEnvInt("TV_ACTION_FREQ_INTERVAL", 100))
     )
     actionFreqInitialized = true
 
   proc ensureActionFreqInit*() =
+    ## Initialize the action-frequency counter on first use.
     if not actionFreqInitialized:
       initActionFreqCounter()
 
   proc resetStepCounters() =
+    ## Reset the counters collected for the current step.
     for u in 0 ..< UnitTypeCount:
       for v in 0 ..< VerbCount:
         actionFreqState.stepUnitVerbCounts[u][v] = 0
       actionFreqState.stepUnitTotals[u] = 0
     actionFreqState.stepTotal = 0
 
+  proc resetAggregateCounters() =
+    ## Reset the counters collected for the current report window.
+    for u in 0 ..< UnitTypeCount:
+      for v in 0 ..< VerbCount:
+        actionFreqState.aggUnitVerbCounts[u][v] = 0
+      actionFreqState.aggUnitTotals[u] = 0
+    actionFreqState.aggTotal = 0
+    actionFreqState.aggStepCount = 0
+
   proc recordActionByUnitType*(agentId: int, verb: int, unitClass: AgentUnitClass) =
     ## Record a single agent action for this step, keyed by unit type.
     ensureActionFreqInit()
+    discard agentId
     let v = clamp(verb, 0, VerbCount - 1)
     let u = ord(unitClass)
     if u >= 0 and u < UnitTypeCount:
@@ -71,22 +83,10 @@ when defined(actionFreqCounter):
     inc actionFreqState.aggStepCount
     resetStepCounters()
 
-  proc padLeft(s: string, width: int): string =
-    if s.len >= width: return s
-    " ".repeat(width - s.len) & s
-
-  proc padRight(s: string, width: int): string =
-    if s.len >= width: return s
-    s & " ".repeat(width - s.len)
-
   proc printActionFreqReport*(currentStep: int) =
-    ## Print aggregate report every N steps. Call at end of each step.
+    ## Print the aggregate report every N steps.
     ensureActionFreqInit()
-
-    # Flush step into aggregates
     flushStep()
-
-    # Check if it's time for an aggregate report
     if actionFreqState.aggStepCount < actionFreqState.reportInterval:
       return
 
@@ -99,10 +99,10 @@ when defined(actionFreqCounter):
     echo ""
 
     # Header: Action names
-    var header = padRight("Unit Type", 18)
+    var header = alignLeft("Unit Type", 18)
     for v in 0 ..< VerbCount:
-      header &= padLeft(VerbNames[v][0..min(5, VerbNames[v].high)], 7)
-    header &= padLeft("Total", 8)
+      header &= align(VerbNames[v][0..min(5, VerbNames[v].high)], 7)
+    header &= align("Total", 8)
     echo header
     echo repeat("-", header.len)
 
@@ -111,23 +111,23 @@ when defined(actionFreqCounter):
       if actionFreqState.aggUnitTotals[u] == 0:
         continue
       let unitName = UnitClassLabels[AgentUnitClass(u)]
-      var row = padRight(unitName[0..min(17, unitName.high)], 18)
+      var row = alignLeft(unitName[0..min(17, unitName.high)], 18)
       for v in 0 ..< VerbCount:
         let c = actionFreqState.aggUnitVerbCounts[u][v]
-        row &= padLeft($c, 7)
-      row &= padLeft($actionFreqState.aggUnitTotals[u], 8)
+        row &= align($c, 7)
+      row &= align($actionFreqState.aggUnitTotals[u], 8)
       echo row
 
     echo repeat("-", header.len)
 
     # Totals row
-    var totalsRow = padRight("TOTAL", 18)
+    var totalsRow = alignLeft("TOTAL", 18)
     for v in 0 ..< VerbCount:
       var verbTotal = 0
       for u in 0 ..< UnitTypeCount:
         verbTotal += actionFreqState.aggUnitVerbCounts[u][v]
-      totalsRow &= padLeft($verbTotal, 7)
-    totalsRow &= padLeft($actionFreqState.aggTotal, 8)
+      totalsRow &= align($verbTotal, 7)
+    totalsRow &= align($actionFreqState.aggTotal, 8)
     echo totalsRow
 
     echo ""
@@ -135,11 +135,4 @@ when defined(actionFreqCounter):
     echo "          plant_lantern=pl, plant_resource=pr, build=B, orient=O, rally=R"
     echo "==============================================================================="
     echo ""
-
-    # Reset aggregates
-    for u in 0 ..< UnitTypeCount:
-      for v in 0 ..< VerbCount:
-        actionFreqState.aggUnitVerbCounts[u][v] = 0
-      actionFreqState.aggUnitTotals[u] = 0
-    actionFreqState.aggTotal = 0
-    actionFreqState.aggStepCount = 0
+    resetAggregateCounters()

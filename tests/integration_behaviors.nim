@@ -2,7 +2,7 @@
 ## and verify emergent outcomes (resource gathering, building, combat, population).
 ## Run with: nim r --path:src tests/integration_behaviors.nim
 
-import std/[strformat, math]
+import std/strformat
 import test_common
 import items
 
@@ -41,20 +41,6 @@ proc countBuildings(env: Environment): int =
   for kind in buildingKinds:
     result += env.thingsByKind[kind].len
 
-proc countDeaths(env: Environment): int =
-  for i in 0 ..< env.agents.len:
-    if env.terminated[i] == 1.0:
-      inc result
-
-proc countAgentsCarryingResources(env: Environment): int =
-  for i in 0 ..< env.agents.len:
-    if env.terminated[i] == 0.0 and not env.agents[i].isNil:
-      let a = env.agents[i]
-      if a.inventory.items[ikWood] > 0 or a.inventory.items[ikStone] > 0 or
-         a.inventory.items[ikGold] > 0 or a.inventory.items[ikWheat] > 0 or
-         a.inventory.items[ikFish] > 0 or a.inventory.items[ikMeat] > 0:
-        inc result
-
 proc runGame(seed: int): GameSummary =
   initGlobalController(BuiltinAI, seed = seed)
   var env = newEnvironment()
@@ -76,14 +62,14 @@ proc runGame(seed: int): GameSummary =
   result.endAlive = countAliveAgents(env)
   result.totalEndResources = getTotalStockpileAllTeams(env)
   result.endBuildingCount = countBuildings(env)
-  result.totalDeaths = countDeaths(env)
-  result.agentsCarryingResources = countAgentsCarryingResources(env)
-
-proc printSummary(s: GameSummary) =
-  echo &"  Seed {s.seed}: {s.stepsCompleted} steps completed"
-  echo &"    Resources: {s.totalStartResources} -> {s.totalEndResources} (peak: {s.peakResources}, agents carrying: {s.agentsCarryingResources})"
-  echo &"    Buildings: {s.startBuildingCount} -> {s.endBuildingCount} (delta: {s.endBuildingCount - s.startBuildingCount})"
-  echo &"    Population: {s.startAlive} alive -> {s.endAlive} alive, {s.totalDeaths} total deaths"
+  for i, agent in env.agents:
+    if env.terminated[i] == 1.0:
+      inc result.totalDeaths
+    elif not agent.isNil and
+        (agent.inventory.items[ikWood] > 0 or agent.inventory.items[ikStone] > 0 or
+         agent.inventory.items[ikGold] > 0 or agent.inventory.items[ikWheat] > 0 or
+         agent.inventory.items[ikFish] > 0 or agent.inventory.items[ikMeat] > 0):
+      inc result.agentsCarryingResources
 
 proc main() =
   const seeds = [42, 123, 777]
@@ -95,7 +81,10 @@ proc main() =
   for seed in seeds:
     echo &"Running game with seed {seed}..."
     let s = runGame(seed)
-    printSummary(s)
+    echo &"  Seed {s.seed}: {s.stepsCompleted} steps completed"
+    echo &"    Resources: {s.totalStartResources} -> {s.totalEndResources} (peak: {s.peakResources}, agents carrying: {s.agentsCarryingResources})"
+    echo &"    Buildings: {s.startBuildingCount} -> {s.endBuildingCount} (delta: {s.endBuildingCount - s.startBuildingCount})"
+    echo &"    Population: {s.startAlive} alive -> {s.endAlive} alive, {s.totalDeaths} total deaths"
     summaries.add(s)
     echo ""
 

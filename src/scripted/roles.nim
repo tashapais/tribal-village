@@ -1,19 +1,9 @@
-## Meta-role definitions and behavior registry for evolutionary roles.
+import
+  std/[json, os, strutils],
+  ../entropy,
+  ai_types, builder, fighter, gatherer
 
-import std/[json, os, strutils]
-import ai_types
-export ai_types
-
-import ../entropy
-
-import gatherer
-export gatherer
-
-import builder
-export builder
-
-import fighter
-export fighter
+export ai_types, builder, fighter, gatherer
 
 type
   BehaviorSource* = enum
@@ -23,9 +13,9 @@ type
     BehaviorCustom
 
   TierSelection* = enum
-    TierFixed       # Keep behavior order as provided
-    TierShuffle     # Shuffle behavior order per materialization
-    TierWeighted    # Weighted shuffle using tier weights
+    TierFixed
+    TierShuffle
+    TierWeighted
 
   BehaviorDef* = object
     id*: int
@@ -59,9 +49,11 @@ type
     nextNameId*: int
 
 proc initRoleCatalog*(): RoleCatalog =
+  ## Initialize an empty role catalog.
   RoleCatalog(nextRoleId: 0, nextNameId: 0)
 
 proc findBehaviorId*(catalog: RoleCatalog, name: string): int =
+  ## Look up a behavior id by name.
   for behavior in catalog.behaviors:
     if behavior.name == name:
       return behavior.id
@@ -69,6 +61,7 @@ proc findBehaviorId*(catalog: RoleCatalog, name: string): int =
 
 proc addBehavior*(catalog: var RoleCatalog, option: OptionDef,
                   source: BehaviorSource): int =
+  ## Register a behavior option when it is missing.
   let existing = findBehaviorId(catalog, option.name)
   if existing >= 0:
     return existing
@@ -86,10 +79,12 @@ proc addBehavior*(catalog: var RoleCatalog, option: OptionDef,
 
 proc addBehaviorSet*(catalog: var RoleCatalog, options: openArray[OptionDef],
                      source: BehaviorSource) =
+  ## Register every behavior option in a source set.
   for opt in options:
     discard catalog.addBehavior(opt, source)
 
 proc stripPrefix(name, prefix: string): string =
+  ## Remove a leading prefix when present.
   if name.len >= prefix.len and name[0 ..< prefix.len] == prefix:
     if prefix.len <= name.high:
       return name[prefix.len .. ^1]
@@ -97,6 +92,7 @@ proc stripPrefix(name, prefix: string): string =
   name
 
 proc shortBehaviorName*(name: string): string =
+  ## Convert a behavior name into a shorter display label.
   var resultName = name
   resultName = stripPrefix(resultName, "Behavior")
   resultName = stripPrefix(resultName, "Gatherer")
@@ -107,18 +103,21 @@ proc shortBehaviorName*(name: string): string =
   resultName
 
 proc findRoleId*(catalog: RoleCatalog, name: string): int =
+  ## Look up a role id by name.
   for role in catalog.roles:
     if role.name == name:
       return role.id
   -1
 
 proc behaviorSelectionWeight*(behavior: BehaviorDef): float32 =
+  ## Compute a sampling weight from behavior fitness data.
   if behavior.games <= 0:
     return 1.0
   max(0.1, behavior.fitness)
 
 proc recordBehaviorScore*(behavior: var BehaviorDef, score: float32,
                           alpha: float32 = 0.2, weight: int = 1) =
+  ## Update rolling behavior fitness statistics.
   let count = max(1, weight)
   for _ in 0 ..< count:
     inc behavior.games
@@ -128,6 +127,7 @@ proc recordBehaviorScore*(behavior: var BehaviorDef, score: float32,
       behavior.fitness = behavior.fitness * (1 - alpha) + score * alpha
 
 proc generateRoleName*(catalog: var RoleCatalog, tiers: seq[RoleTier]): string =
+  ## Generate a readable role name from its first-tier behavior.
   var baseName = "Role"
   if tiers.len > 0 and tiers[0].behaviorIds.len > 0:
     let id = tiers[0].behaviorIds[0]
@@ -139,6 +139,7 @@ proc generateRoleName*(catalog: var RoleCatalog, tiers: seq[RoleTier]): string =
 
 proc newRoleDef*(catalog: var RoleCatalog, name: string, tiers: seq[RoleTier],
                  origin: string, kind: AgentRole = Scripted): RoleDef =
+  ## Build a new role definition with catalog-managed ids.
   result = RoleDef(
     id: catalog.nextRoleId,
     name: name,
@@ -153,6 +154,7 @@ proc newRoleDef*(catalog: var RoleCatalog, name: string, tiers: seq[RoleTier],
   inc catalog.nextRoleId
 
 proc registerRole*(catalog: var RoleCatalog, role: RoleDef): int =
+  ## Append a role definition to the catalog.
   let id = catalog.roles.len
   var nextRole = role
   nextRole.id = id
@@ -161,18 +163,21 @@ proc registerRole*(catalog: var RoleCatalog, role: RoleDef): int =
   id
 
 proc tierSelectionToString(selection: TierSelection): string =
+  ## Serialize tier selection to a stable string.
   case selection
   of TierFixed: "fixed"
   of TierShuffle: "shuffle"
   of TierWeighted: "weighted"
 
 proc parseTierSelection(value: string): TierSelection =
+  ## Parse tier selection from serialized text.
   case value.toLowerAscii()
   of "shuffle": TierShuffle
   of "weighted": TierWeighted
   else: TierFixed
 
 proc roleKindToString(kind: AgentRole): string =
+  ## Serialize an agent role kind to text.
   case kind
   of Gatherer: "gatherer"
   of Builder: "builder"
@@ -180,6 +185,7 @@ proc roleKindToString(kind: AgentRole): string =
   of Scripted: "scripted"
 
 proc parseRoleKind(value: string): AgentRole =
+  ## Parse an agent role kind from serialized text.
   case value.toLowerAscii()
   of "gatherer": Gatherer
   of "builder": Builder
@@ -188,6 +194,7 @@ proc parseRoleKind(value: string): AgentRole =
   else: Scripted
 
 proc roleTierToJson(tier: RoleTier, catalog: RoleCatalog): JsonNode =
+  ## Serialize one role tier to JSON.
   result = newJObject()
   result["selection"] = %tierSelectionToString(tier.selection)
   var behaviors = newJArray()
@@ -202,6 +209,7 @@ proc roleTierToJson(tier: RoleTier, catalog: RoleCatalog): JsonNode =
     result["weights"] = weights
 
 proc roleToJson(role: RoleDef, catalog: RoleCatalog): JsonNode =
+  ## Serialize one role definition to JSON.
   result = newJObject()
   result["name"] = %role.name
   result["kind"] = %roleKindToString(role.kind)
@@ -216,6 +224,7 @@ proc roleToJson(role: RoleDef, catalog: RoleCatalog): JsonNode =
   result["tiers"] = tiers
 
 proc behaviorToJson(behavior: BehaviorDef): JsonNode =
+  ## Serialize one behavior definition to JSON.
   result = newJObject()
   result["name"] = %behavior.name
   result["fitness"] = %behavior.fitness
@@ -223,6 +232,7 @@ proc behaviorToJson(behavior: BehaviorDef): JsonNode =
   result["uses"] = %behavior.uses
 
 proc saveRoleHistory*(catalog: RoleCatalog, path: string) =
+  ## Persist role and behavior history to disk.
   let dir = splitFile(path).dir
   if dir.len > 0 and not dirExists(dir):
     createDir(dir)
@@ -239,6 +249,7 @@ proc saveRoleHistory*(catalog: RoleCatalog, path: string) =
   writeFile(path, $root)
 
 proc applyBehaviorHistory(catalog: var RoleCatalog, node: JsonNode) =
+  ## Apply stored behavior fitness data to the catalog.
   if node.kind != JObject:
     return
   if not node.hasKey("behaviors"):
@@ -258,6 +269,7 @@ proc applyBehaviorHistory(catalog: var RoleCatalog, node: JsonNode) =
       catalog.behaviors[idx].uses = entry["uses"].getInt()
 
 proc parseRoleTiers(catalog: RoleCatalog, node: JsonNode): seq[RoleTier] =
+  ## Parse serialized role tiers into catalog behavior ids.
   if node.kind != JArray:
     return @[]
   for entry in node.items:
@@ -279,6 +291,7 @@ proc parseRoleTiers(catalog: RoleCatalog, node: JsonNode): seq[RoleTier] =
       result.add tier
 
 proc applyRoleHistory(catalog: var RoleCatalog, node: JsonNode) =
+  ## Apply stored role history to the catalog.
   if node.kind != JObject:
     return
   if not node.hasKey("roles"):
@@ -319,6 +332,7 @@ proc applyRoleHistory(catalog: var RoleCatalog, node: JsonNode) =
     discard registerRole(catalog, role)
 
 proc loadRoleHistory*(catalog: var RoleCatalog, path: string) =
+  ## Load role and behavior history from disk when present.
   if not fileExists(path):
     return
   let raw = readFile(path)
@@ -331,6 +345,7 @@ proc loadRoleHistory*(catalog: var RoleCatalog, path: string) =
     catalog.nextNameId = node["nextNameId"].getInt()
 
 proc shuffleIds(rng: var Rand, ids: var seq[int]) =
+  ## Shuffle ids in place.
   if ids.len < 2:
     return
   var i = ids.high
@@ -342,6 +357,7 @@ proc shuffleIds(rng: var Rand, ids: var seq[int]) =
     dec i
 
 proc weightedPickIndex*(rng: var Rand, weights: openArray[float32]): int =
+  ## Pick one index from a positive-weight array.
   if weights.len == 0:
     return 0
   var total = 0.0
@@ -361,6 +377,7 @@ proc weightedPickIndex*(rng: var Rand, weights: openArray[float32]): int =
   weights.len - 1
 
 proc resolveTierOrder(rng: var Rand, tier: RoleTier): seq[int] =
+  ## Materialize a tier into an ordered behavior id list.
   if tier.behaviorIds.len == 0:
     return @[]
   case tier.selection
@@ -386,6 +403,7 @@ proc resolveTierOrder(rng: var Rand, tier: RoleTier): seq[int] =
 
 proc materializeRoleOptions*(catalog: RoleCatalog, role: RoleDef,
                              rng: var Rand, maxOptions: int = 0): seq[OptionDef] =
+  ## Expand a role definition into an ordered option list.
   for tier in role.tiers:
     let orderedIds = resolveTierOrder(rng, tier)
     for id in orderedIds:
@@ -395,6 +413,7 @@ proc materializeRoleOptions*(catalog: RoleCatalog, role: RoleDef,
           return
 
 proc seedDefaultBehaviorCatalog*(catalog: var RoleCatalog) =
+  ## Register the built-in behavior catalogs.
   when declared(GathererOptions):
     catalog.addBehaviorSet(GathererOptions, BehaviorGatherer)
   when declared(BuilderOptions):

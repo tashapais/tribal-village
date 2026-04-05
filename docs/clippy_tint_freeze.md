@@ -30,7 +30,7 @@ Each step:
 - Lanterns add team tint in a Manhattan radius 2, scale 60.
 - Tumors add clippy tint in a Manhattan radius 2, scale `TumorIncrementBase`.
 
-`applyTintModifications` combines trail + tumor tint into `computedTintColors`:
+`ensureTintColors` triggers the trail + tumor recompute into `computedTintColors`:
 - Water tiles always zero out computed tint.
 - Intensity is proportional to total strength (`TintStrengthScale`).
 - RGB channels are normalized and clamped.

@@ -11,9 +11,7 @@ include "step_tick"
 let logRenderEnabled = parseEnvBool("TV_LOG_RENDER", false)
 let logRenderWindow = max(100, parseEnvInt("TV_LOG_RENDER_WINDOW", 100))
 let logRenderEvery = max(1, parseEnvInt("TV_LOG_RENDER_EVERY", 1))
-let logRenderPath = block:
-  let raw = getEnv("TV_LOG_RENDER_PATH", "")
-  if raw.len > 0: raw else: "tribal_village.log"
+let logRenderPath = parseEnvString("TV_LOG_RENDER_PATH", "tribal_village.log")
 
 var logRenderBuffer: seq[string] = @[]
 var logRenderHead = 0
@@ -446,7 +444,7 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
                 # Trade route gold: no gather rate modifier (fixed economic mechanic)
                 env.teamStockpiles[getTeamId(agent)].counts[ResourceGold] += goldAmount
                 when defined(econAudit):
-                  recordTradeShipGold(getTeamId(agent), goldAmount, env.currentStep)
+                  recordFlow(getTeamId(agent), ResourceGold, goldAmount, rfsTradeShip, env.currentStep)
                 agent.tradeHomeDock = agent.pos  # Flip home dock for return trip
         elif agent.unitClass == UnitBoat:
           if dockHere or env.terrain[agent.pos.x][agent.pos.y] != Water:
@@ -873,15 +871,11 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
         var thing = env.getThing(targetPos)
         if isNil(thing):
           thing = env.getBackgroundThing(targetPos)
-        template setInvAndObs(key: ItemKey, value: int) =
-          setInv(agent, key, value)
-          env.updateAgentInventoryObs(agent, key)
-
         template decInv(key: ItemKey) =
-          setInvAndObs(key, getInv(agent, key) - 1)
+          setInv(agent, key, getInv(agent, key) - 1)
 
         template incInv(key: ItemKey) =
-          setInvAndObs(key, getInv(agent, key) + 1)
+          setInv(agent, key, getInv(agent, key) + 1)
 
         if isNil(thing):
           # Terrain use only when no Thing occupies the tile.
@@ -905,7 +899,6 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
                 setInv(relic, ItemGold, 0)
                 env.add(relic)
                 agent.inventoryRelic = agent.inventoryRelic - 1
-                env.updateAgentInventoryObs(agent, ItemRelic)
                 used = true
             elif agent.inventoryBread > 0:
               decInv(ItemBread)
@@ -988,7 +981,6 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
                 break useAction
             if agent.inventoryRelic < MapObjectAgentMaxInventory:
               agent.inventoryRelic = agent.inventoryRelic + 1
-              env.updateAgentInventoryObs(agent, ItemRelic)
               removeThing(env, thing)
               used = true
             else:
@@ -996,7 +988,6 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
         of Lantern:
           if agent.inventoryLantern < MapObjectAgentMaxInventory:
             agent.inventoryLantern = agent.inventoryLantern + 1
-            env.updateAgentInventoryObs(agent, ItemLantern)
             removeThing(env, thing)
             used = true
         of Wheat:
@@ -1117,7 +1108,7 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
               decInv(ItemWood)
             else:
               decInv(ItemWheat)
-            setInvAndObs(ItemLantern, 1)
+            setInv(agent, ItemLantern, 1)
             thing.cooldown = 0
             env.rewards[id] += env.config.clothReward
             used = true
@@ -1197,7 +1188,7 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
                     decInv(ItemWood)
                   else:
                     decInv(ItemWheat)
-                  setInvAndObs(ItemLantern, 1)
+                  setInv(agent, ItemLantern, 1)
                   thing.cooldown = 0
                   env.rewards[id] += env.config.clothReward
                   used = true
@@ -1239,26 +1230,22 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
                         when defined(eventLog):
                           let (goldSpent, foodGained) = env.marketBuyFood(agent, count)
                           if foodGained > 0:
-                            env.updateAgentInventoryObs(agent, key)
                             logMarketTrade(agentTeamId, "Bought", "Food", foodGained, goldSpent, env.currentStep)
                             traded = true
                         else:
                           let (_, foodGained) = env.marketBuyFood(agent, count)
                           if foodGained > 0:
-                            env.updateAgentInventoryObs(agent, key)
                             traded = true
                       else:
                         # Sell resources for gold (dynamic pricing)
                         when defined(eventLog):
                           let (amountSold, goldGained) = env.marketSellInventory(agent, key)
                           if amountSold > 0:
-                            env.updateAgentInventoryObs(agent, key)
                             logMarketTrade(agentTeamId, "Sold", $stockpileRes, amountSold, goldGained, env.currentStep)
                             traded = true
                         else:
                           let (amountSold, _) = env.marketSellInventory(agent, key)
                           if amountSold > 0:
-                            env.updateAgentInventoryObs(agent, key)
                             traded = true
                     if traded:
                       thing.cooldown = DefaultMarketCooldown
@@ -1306,7 +1293,6 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
                 if thing.kind == Monastery and agent.unitClass == UnitMonk and agent.inventoryRelic > 0:
                   thing.garrisonedRelics = thing.garrisonedRelics + agent.inventoryRelic
                   agent.inventoryRelic = 0
-                  env.updateAgentInventoryObs(agent, ItemRelic)
                   used = true
                 elif buildingHasTrain(thing.kind) and agent.unitClass == UnitVillager:
                   # If queue has a ready entry, convert villager immediately (pre-paid)
@@ -1392,9 +1378,7 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
               break pickupAttempt
             for itemKey, count in thing.inventory.pairs:
               setInv(agent, itemKey, getInv(agent, itemKey) + count)
-              env.updateAgentInventoryObs(agent, itemKey)
             setInv(agent, key, current + 1)
-            env.updateAgentInventoryObs(agent, key)
             if isValidPos(thing.pos):
               env.updateObservations(ThingAgentLayer, thing.pos, 0)
             removeThing(env, thing)
@@ -1496,16 +1480,9 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
               let moved = min(bestCount, capacity)
               setInv(agent, bestKey, bestCount - moved)
               setInv(target, bestKey, getInv(target, bestKey) + moved)
-              env.updateAgentInventoryObs(agent, bestKey)
-              env.updateAgentInventoryObs(target, bestKey)
               transferred = true
         if transferred:
           inc env.stats[id].actionPut
-          # Update observations for changed inventories
-          env.updateAgentInventoryObs(agent, ItemArmor)
-          env.updateAgentInventoryObs(agent, ItemBread)
-          env.updateAgentInventoryObs(target, ItemArmor)
-          env.updateAgentInventoryObs(target, ItemBread)
         else:
           inc env.stats[id].actionInvalid
     of 6:
@@ -1738,8 +1715,12 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
               env.altarColors[targetPos] = env.teamColors[teamId]
           when defined(eventLog):
             if isBuilding:
-              logBuildingStarted(placed.teamId, $placedKind,
-                                 "(" & $placed.pos.x & "," & $placed.pos.y & ")", env.currentStep)
+              logEvent(
+                ecBuildStart,
+                placed.teamId,
+                "Started building " & $placedKind & " at (" & $placed.pos.x & "," & $placed.pos.y & ")",
+                env.currentStep,
+              )
           placedOk = true
 
         if placedOk:
@@ -1818,7 +1799,9 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
   # Repair uses RepairHpPerAction (faster), construction uses ConstructionHpPerAction
   # Treadmill Crane: +20% construction speed from University tech
   for pos, builderCount in env.constructionBuilders.pairs:
-    let thing = env.getThing(pos).orElse(env.getBackgroundThing(pos))
+    var thing = env.getThing(pos)
+    if thing.isNil:
+      thing = env.getBackgroundThing(pos)
     if not thing.hasValue or thing.maxHp <= 0 or thing.hp >= thing.maxHp:
       continue
     # Calculate effective HP gain with diminishing returns
@@ -1849,8 +1832,12 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
       env.spawnConstructionDust(thing.pos)
     when defined(eventLog):
       if wasBelowMax and thing.hp >= thing.maxHp:
-        logBuildingCompleted(thing.teamId, $thing.kind,
-                             "(" & $thing.pos.x & "," & $thing.pos.y & ")", env.currentStep)
+        logEvent(
+          ecBuildDone,
+          thing.teamId,
+          "Completed " & $thing.kind & " at (" & $thing.pos.x & "," & $thing.pos.y & ")",
+          env.currentStep,
+        )
     when defined(audio):
       if wasBelowMaxAudio and thing.hp >= thing.maxHp:
         audioOnBuildingComplete(thing.pos)
@@ -1932,7 +1919,7 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
           let goldAmount = thing.garrisonedRelics * MonasteryRelicGoldAmount
           env.teamStockpiles[teamId].counts[ResourceGold] += goldAmount
           when defined(econAudit):
-            recordRelicGold(teamId, goldAmount, env.currentStep)
+            recordFlow(teamId, ResourceGold, goldAmount, rfsRelicGold, env.currentStep)
         thing.cooldown = MonasteryRelicGoldInterval
     else:
       if thing.cooldown > 0:
@@ -2455,13 +2442,7 @@ proc reset*(env: Environment, seed: int = 0) =
   env.teamTributesReceived = default(array[MapRoomObjectsTeams, int])
   env.townBellActive = default(array[MapRoomObjectsTeams, bool])
   # Reset victory conditions
-  env.victoryWinner = -1
-  env.victoryWinners = NoTeamMask
-  for teamId in 0 ..< MapRoomObjectsTeams:
-    env.victoryStates[teamId].wonderBuiltStep = -1
-    env.victoryStates[teamId].relicHoldStartStep = -1
-    env.victoryStates[teamId].kingAgentId = -1
-    env.victoryStates[teamId].hillControlStartStep = -1
+  env.resetVictoryState()
   # Clear fog of war (revealed maps) via zeroMem
   env.revealedMaps.clear()
   # Clear UI selection and control groups to prevent stale references

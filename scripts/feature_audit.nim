@@ -9,7 +9,8 @@
 ##   TV_AUDIT_STEPS  - Total steps to run (default: 3000)
 ##   TV_AUDIT_SEED   - Random seed (default: 42)
 
-import std/[os, strutils, strformat, tables, algorithm, sets, monotimes]
+import std/[strutils, strformat, tables, algorithm, sets, monotimes]
+import envconfig
 import environment
 import agent_control
 import types
@@ -20,8 +21,8 @@ import scripted/ai_types
 const Teams = MapRoomObjectsTeams  # 8
 
 proc main() =
-  let totalSteps = parseInt(getEnv("TV_AUDIT_STEPS", "3000"))
-  let seed = parseInt(getEnv("TV_AUDIT_SEED", "42"))
+  let totalSteps = parseEnvInt("TV_AUDIT_STEPS", 3000)
+  let seed = parseEnvInt("TV_AUDIT_SEED", 42)
 
   echo "╔══════════════════════════════════════════════════════════╗"
   echo "║         AoE2 FEATURE COVERAGE AUDIT                    ║"

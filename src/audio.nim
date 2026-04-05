@@ -19,23 +19,8 @@
 ## and maintains ambient loops based on camera position.
 
 when defined(audio):
-  import std/[tables, sets, random, math, os]
+  import std/[tables, sets, random, math, os, options]
   import vmath
-
-  # Option type for optional world position
-  type Option*[T] = object
-    has*: bool
-    val*: T
-
-  proc some*[T](val: T): Option[T] =
-    Option[T](has: true, val: val)
-
-  proc none*[T](): Option[T] =
-    Option[T](has: false)
-
-  proc isSome*[T](o: Option[T]): bool = o.has
-  proc isNone*[T](o: Option[T]): bool = not o.has
-  proc get*[T](o: Option[T]): T = o.val
 
   type
     SoundCategory* = enum
@@ -157,7 +142,7 @@ when defined(audio):
   proc queueSound*(category: SoundCategory, soundId: string,
                    priority: SoundPriority = spNormal,
                    volume: float32 = 1.0,
-                   worldPos: Option[IVec2] = none[IVec2](),
+                   worldPos: Option[IVec2] = none(IVec2),
                    pitchVariation: float32 = 0.0) =
     ## Queue a sound to be played. Sounds are processed in updateAudio.
     if not audioManager.initialized or not audioManager.enabled:
@@ -205,11 +190,11 @@ when defined(audio):
 
   proc playUnitVoice*(soundId: string, volume: float32 = 1.0) =
     ## Play a unit acknowledgment voice (no position - plays at full volume)
-    queueSound(scUnit, soundId, spCritical, volume, none[IVec2](), 0.05)
+    queueSound(scUnit, soundId, spCritical, volume, none(IVec2), 0.05)
 
   proc playUISound*(soundId: string) =
     ## Play a UI feedback sound
-    queueSound(scUI, soundId, spCritical, 0.8, none[IVec2]())
+    queueSound(scUI, soundId, spCritical, 0.8, none(IVec2))
 
   proc setAmbientBiome*(biome: string) =
     ## Set the current biome for ambient sound selection

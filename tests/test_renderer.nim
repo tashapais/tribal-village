@@ -12,7 +12,6 @@
 import std/[unittest, math, strformat]
 import test_common
 import renderer_core
-import colors
 
 const
   RendererTestEpsilon = 0.001'f32  # Tolerance for float comparisons
