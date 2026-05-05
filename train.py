@@ -229,8 +229,8 @@ def compute_probe_accuracy(
         full_actions[:n_agents] = np.random.randint(0, env.action_space.nvec[0], size=n_agents)
         obs_raw, rewards_dict, terminated, truncated, _ = env.step(full_actions)
         agent_returns += np.array([rewards_dict.get(k, 0.0) for k in probe_keys])
-        ep_done = (any(terminated.values()) if isinstance(terminated, dict) else bool(terminated)) or \
-                  (any(truncated.values()) if isinstance(truncated, dict) else bool(truncated))
+        ep_done = (all(terminated.values()) if isinstance(terminated, dict) else bool(terminated)) or \
+                  (all(truncated.values()) if isinstance(truncated, dict) else bool(truncated))
         if ep_done:
             try:
                 obs_raw, _ = env.reset()
@@ -351,7 +351,7 @@ def main(dry_run: bool = False):
 
             # Handle per-agent done dicts (PettingZoo-style) or scalar bools
             def _any_done(d):
-                return any(d.values()) if isinstance(d, dict) else bool(d)
+                return all(d.values()) if isinstance(d, dict) else bool(d)
 
             episode_done = _any_done(terminated) or _any_done(truncated)
 
