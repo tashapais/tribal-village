@@ -56,7 +56,7 @@ SEED = 0
 def make_env(num_agents: int):
     from tribal_village_env import TribalVillageEnv
     env = TribalVillageEnv(config={
-        "max_steps": 1024,
+        "max_steps": 1_000_000,  # avoid mid-training resets; env.reset() hangs on computeDistances
         "render_mode": "ansi",
     })
     # The env always returns all agent slots; we use the first num_agents
