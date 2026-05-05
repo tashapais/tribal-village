@@ -229,7 +229,9 @@ def compute_probe_accuracy(
         full_actions[:n_agents] = np.random.randint(0, env.action_space.nvec[0], size=n_agents)
         obs_raw, rewards_dict, terminated, truncated, _ = env.step(full_actions)
         agent_returns += np.array([rewards_dict.get(k, 0.0) for k in probe_keys])
-        if terminated or truncated:
+        ep_done = (any(terminated.values()) if isinstance(terminated, dict) else bool(terminated)) or \
+                  (any(truncated.values()) if isinstance(truncated, dict) else bool(truncated))
+        if ep_done:
             try:
                 obs_raw, _ = env.reset()
             except Exception:
@@ -343,6 +345,12 @@ def main(dry_run: bool = False):
             obs_next_raw, rewards_dict, terminated, truncated, _ = env.step(full_actions)
             agent_rewards = np.array([rewards_dict.get(k, 0.0) for k in agent_keys])
 
+            # Handle per-agent done dicts (PettingZoo-style) or scalar bools
+            def _any_done(d):
+                return any(d.values()) if isinstance(d, dict) else bool(d)
+
+            episode_done = _any_done(terminated) or _any_done(truncated)
+
             # Reward shaping by condition
             if REWARD_TYPE == "shared":
                 r = np.full(NUM_AGENTS, agent_rewards.mean())
@@ -356,13 +364,13 @@ def main(dry_run: bool = False):
             logp_buf.append(logps.cpu().numpy())
             val_buf.append(vals.cpu().numpy())
             rew_buf.append(r)
-            done_buf.append(float(terminated or truncated))
+            done_buf.append(float(episode_done))
             emb_buf.append(z.detach().cpu())
 
             obs_cur = prep_obs(extract_agents(obs_next_raw, agent_keys), role_labels, NUM_ROLES, ASSIGN_ROLES)
             total_steps += NUM_AGENTS
 
-            if terminated or truncated:
+            if episode_done:
                 obs_raw, _ = env.reset()
                 obs_cur = prep_obs(extract_agents(obs_raw, agent_keys), role_labels, NUM_ROLES, ASSIGN_ROLES)
 
