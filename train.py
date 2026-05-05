@@ -40,6 +40,8 @@ MINIBATCH_SIZE = 256
 ROLLOUT_STEPS = 512             # steps per rollout before update
 ENCODER_HIDDEN = 256            # encoder hidden size
 ENCODER_LAYERS = 2              # number of encoder layers
+ASSIGN_ROLES = True             # append one-hot role ID to each agent's observation
+NUM_ROLES = 3                   # number of distinct roles (agents split evenly by index)
 
 # Fixed constants (do not modify)
 TRAIN_BUDGET_SECONDS = 600      # 10-minute wall-clock budget
@@ -61,9 +63,27 @@ def make_env(num_agents: int):
     return env
 
 
+def assign_role_labels(n_agents: int, n_roles: int) -> np.ndarray:
+    """Assign integer role labels 0..n_roles-1 evenly across agents by index."""
+    return np.array([i * n_roles // n_agents for i in range(n_agents)], dtype=np.int64)
+
+
 def extract_agents(obs_dict: dict, agent_keys: list[str]) -> np.ndarray:
     """Stack per-agent observations for the active subset."""
     return np.stack([obs_dict[k] for k in agent_keys])
+
+
+def prep_obs(obs_arr: np.ndarray, role_labels: np.ndarray, n_roles: int, assign: bool) -> np.ndarray:
+    """
+    Flatten spatial obs and optionally append one-hot role vector.
+    obs_arr: (n_agents, C, H, W) — returns (n_agents, flat_dim [+ n_roles])
+    """
+    n = obs_arr.shape[0]
+    flat = obs_arr.reshape(n, -1).astype(np.float32) / 255.0
+    if not assign:
+        return flat
+    one_hot = np.eye(n_roles, dtype=np.float32)[role_labels]  # (n_agents, n_roles)
+    return np.concatenate([flat, one_hot], axis=-1)
 
 
 # =============================================================================
@@ -170,16 +190,20 @@ def compute_probe_accuracy(
     env,
     n_agents: int,
     device: torch.device,
+    role_labels: np.ndarray,
+    n_roles: int,
+    assign: bool,
     n_steps: int = PROBE_EVAL_STEPS,
 ) -> float:
     """
-    Collect embeddings with individual rewards. Train a logistic regression
-    to predict top-half vs. bottom-half performance rank from frozen embeddings.
+    Collect frozen embeddings and train a logistic regression to predict role.
+    If ASSIGN_ROLES: uses ground-truth role labels (chance = 1/n_roles).
+    Otherwise: falls back to top/bottom performance rank (chance = 0.50).
     """
     from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import cross_val_score
 
     model.eval()
-    all_z, all_returns = [], []
 
     try:
         obs_raw, _ = env.reset(seed=42)
@@ -188,14 +212,14 @@ def compute_probe_accuracy(
 
     all_keys = sorted(obs_raw.keys(), key=lambda k: int(k.split("_")[1]))
     probe_keys = all_keys[:n_agents]
-    obs_flat_probe = int(np.prod(obs_raw[probe_keys[0]].shape))
 
     agent_returns = np.zeros(n_agents)
     step_embeddings = [[] for _ in range(n_agents)]
 
     for _ in range(n_steps):
         obs_arr = np.stack([obs_raw[k] for k in probe_keys])
-        obs_t = torch.tensor(obs_arr, dtype=torch.float32, device=device).reshape(n_agents, -1) / 255.0
+        obs_ready = prep_obs(obs_arr, role_labels, n_roles, assign)
+        obs_t = torch.tensor(obs_ready, dtype=torch.float32, device=device)
         with torch.no_grad():
             z = model.encoder(obs_t)
         for i in range(n_agents):
@@ -211,19 +235,23 @@ def compute_probe_accuracy(
             except Exception:
                 break
 
-    # Build labels: top-half vs bottom-half by total return
-    threshold = np.median(agent_returns)
-    labels = (agent_returns > threshold).astype(int)
+    # Ground-truth labels if roles are assigned; otherwise performance rank proxy
+    if assign:
+        labels = role_labels
+    else:
+        threshold = np.median(agent_returns)
+        labels = (agent_returns > threshold).astype(int)
 
-    # Build feature matrix: mean embedding per agent
     X = np.array([np.mean(step_embeddings[i], axis=0) for i in range(n_agents)])
-    if np.std(labels) == 0:
-        return 0.5
+    if len(np.unique(labels)) < 2:
+        return 1.0 / n_roles if assign else 0.5
 
     try:
+        cv_folds = min(3, min(np.bincount(labels)))
+        if cv_folds < 2:
+            return float("nan")
         clf = LogisticRegression(max_iter=1000)
-        from sklearn.model_selection import cross_val_score
-        scores = cross_val_score(clf, X, labels, cv=min(3, n_agents // 2))
+        scores = cross_val_score(clf, X, labels, cv=cv_folds)
         return float(scores.mean())
     except Exception:
         return float("nan")
@@ -262,13 +290,17 @@ def main(dry_run: bool = False):
     agent_keys = all_agent_keys[:NUM_AGENTS]
     single_obs = obs_raw[agent_keys[0]]
     obs_flat = int(np.prod(single_obs.shape))
+    role_labels = assign_role_labels(NUM_AGENTS, NUM_ROLES)
+    obs_flat_in = obs_flat + NUM_ROLES if ASSIGN_ROLES else obs_flat
     n_actions = int(env.action_space.nvec[0])
 
-    model = MAPPOAgent(obs_flat, n_actions, ENCODER_HIDDEN, ENCODER_LAYERS).to(device)
+    model = MAPPOAgent(obs_flat_in, n_actions, ENCODER_HIDDEN, ENCODER_LAYERS).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, eps=1e-5)
 
     if dry_run:
-        print("Dry run OK. obs_flat=%d n_actions=%d device=%s n_agents=%d" % (obs_flat, n_actions, device, NUM_AGENTS))
+        print("Dry run OK. obs_flat=%d obs_flat_in=%d n_actions=%d device=%s n_agents=%d roles=%s" % (
+            obs_flat, obs_flat_in, n_actions, device, NUM_AGENTS,
+            str(role_labels.tolist()) if ASSIGN_ROLES else "none"))
         env.close()
         return
 
@@ -291,7 +323,7 @@ def main(dry_run: bool = False):
     done_buf = []
     emb_buf = []         # for contrastive: store embeddings
 
-    obs_cur = extract_agents(obs_raw, agent_keys)
+    obs_cur = prep_obs(extract_agents(obs_raw, agent_keys), role_labels, NUM_ROLES, ASSIGN_ROLES)
 
     while True:
         elapsed = time.time() - train_start
@@ -301,7 +333,7 @@ def main(dry_run: bool = False):
         # --- Rollout ---
         model.eval()
         for _ in range(ROLLOUT_STEPS):
-            obs_t = torch.tensor(obs_cur, dtype=torch.float32, device=device).reshape(NUM_AGENTS, -1) / 255.0
+            obs_t = torch.tensor(obs_cur, dtype=torch.float32, device=device)
             with torch.no_grad():
                 acts, logps, _, vals, z = model.get_action_and_value(obs_t)
 
@@ -327,16 +359,16 @@ def main(dry_run: bool = False):
             done_buf.append(float(terminated or truncated))
             emb_buf.append(z.detach().cpu())
 
-            obs_cur = extract_agents(obs_next_raw, agent_keys)
+            obs_cur = prep_obs(extract_agents(obs_next_raw, agent_keys), role_labels, NUM_ROLES, ASSIGN_ROLES)
             total_steps += NUM_AGENTS
 
             if terminated or truncated:
                 obs_raw, _ = env.reset()
-                obs_cur = extract_agents(obs_raw, agent_keys)
+                obs_cur = prep_obs(extract_agents(obs_raw, agent_keys), role_labels, NUM_ROLES, ASSIGN_ROLES)
 
         # --- Update ---
         model.train()
-        obs_arr = torch.tensor(np.array(obs_buf), dtype=torch.float32, device=device).reshape(-1, obs_flat) / 255.0
+        obs_arr = torch.tensor(np.array(obs_buf), dtype=torch.float32, device=device).reshape(-1, obs_flat_in)
         act_arr = torch.tensor(np.array(act_buf), dtype=torch.long, device=device).reshape(-1)
         logp_arr = torch.tensor(np.array(logp_buf), dtype=torch.float32, device=device).reshape(-1)
         val_arr = torch.tensor(np.array(val_buf), dtype=torch.float32, device=device).reshape(-1)
@@ -382,7 +414,7 @@ def main(dry_run: bool = False):
         # EffRank diagnostic
         if update_count % EFFRANK_FREQ == 0:
             with torch.no_grad():
-                sample_obs = torch.tensor(obs_cur, dtype=torch.float32, device=device).reshape(NUM_AGENTS, -1) / 255.0
+                sample_obs = torch.tensor(obs_cur, dtype=torch.float32, device=device)
                 _, _, _, _, Z = model.get_action_and_value(sample_obs)
             er = effective_rank(Z)
             last_effrank_n = er / NUM_AGENTS
@@ -405,7 +437,9 @@ def main(dry_run: bool = False):
 
     # Probe accuracy
     try:
-        probe_acc = compute_probe_accuracy(model, env, NUM_AGENTS, device)
+        probe_acc = compute_probe_accuracy(
+            model, env, NUM_AGENTS, device,
+            role_labels, NUM_ROLES, ASSIGN_ROLES)
     except Exception:
         probe_acc = float("nan")
 
@@ -422,6 +456,9 @@ def main(dry_run: bool = False):
     print(f"num_agents:       {NUM_AGENTS}")
     print(f"reward_type:      {REWARD_TYPE}")
     print(f"use_contrastive:  {USE_CONTRASTIVE}")
+    print(f"assign_roles:     {ASSIGN_ROLES}")
+    print(f"num_roles:        {NUM_ROLES}")
+    print(f"probe_chance:     {1.0/NUM_ROLES:.3f}" if ASSIGN_ROLES else "probe_chance:     0.500")
 
 
 if __name__ == "__main__":
