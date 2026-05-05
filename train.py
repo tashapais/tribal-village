@@ -23,7 +23,7 @@ warnings.filterwarnings("ignore")
 # EXPERIMENT CONFIG — agent modifies these
 # =============================================================================
 
-REWARD_TYPE = "individual"       # "individual", "shared", or "mixed"
+REWARD_TYPE = "shared"           # "individual", "shared", or "mixed"
 MIXED_INDIVIDUAL_WEIGHT = 0.2    # weight of individual reward in mixed mode (rest is shared)
 USE_CONTRASTIVE = False          # add inter-agent InfoNCE loss
 CONTRASTIVE_ALPHA = 6.8e-4       # contrastive loss weight
