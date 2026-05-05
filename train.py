@@ -306,12 +306,12 @@ def main(dry_run: bool = False):
     if dry_run:
         print("Dry run OK. obs_flat=%d obs_flat_in=%d n_actions=%d device=%s n_agents=%d roles=%s" % (
             obs_flat, obs_flat_in, n_actions, device, NUM_AGENTS,
-            str(role_labels.tolist()) if ASSIGN_ROLES else "none"))
+            str(role_labels.tolist()) if ASSIGN_ROLES else "none"), flush=True)
         env.close()
         return
 
     print("Starting training: agents=%d reward=%s contrastive=%s device=%s" % (
-        NUM_AGENTS, REWARD_TYPE, USE_CONTRASTIVE, device))
+        NUM_AGENTS, REWARD_TYPE, USE_CONTRASTIVE, device), flush=True)
 
     train_start = time.time()
     total_steps = 0
@@ -440,6 +440,11 @@ def main(dry_run: bool = False):
                     logits_list.append(lgt.squeeze(0))
             last_d_act = action_diversity(logits_list)
 
+            elapsed = time.time() - train_start
+            print(f"update={update_count} steps={total_steps} elapsed={elapsed:.0f}s "
+                  f"effrank_n={last_effrank_n:.3f} d_act={last_d_act:.4f} loss={loss.item():.4f}",
+                  flush=True)
+
         # Clear buffers
         obs_buf.clear(); act_buf.clear(); logp_buf.clear()
         val_buf.clear(); rew_buf.clear(); done_buf.clear(); emb_buf.clear()
@@ -448,29 +453,31 @@ def main(dry_run: bool = False):
     training_seconds = time.time() - train_start
 
     # Probe accuracy
+    print(f"probe: collecting {PROBE_EVAL_STEPS} steps...", flush=True)
     try:
         probe_acc = compute_probe_accuracy(
             model, env, NUM_AGENTS, device,
             role_labels, NUM_ROLES, ASSIGN_ROLES)
-    except Exception:
+    except Exception as e:
+        print(f"probe error: {e}", flush=True)
         probe_acc = float("nan")
 
     env.close()
 
     # Print summary in autoresearch format
-    print("---")
-    print(f"effrank_n:        {last_effrank_n:.4f}")
-    print(f"probe_acc:        {probe_acc:.4f}")
-    print(f"d_act:            {last_d_act:.4f}")
-    print(f"training_seconds: {training_seconds:.1f}")
-    print(f"total_seconds:    {time.time() - train_start + training_seconds:.1f}")
-    print(f"num_steps:        {total_steps}")
-    print(f"num_agents:       {NUM_AGENTS}")
-    print(f"reward_type:      {REWARD_TYPE}")
-    print(f"use_contrastive:  {USE_CONTRASTIVE}")
-    print(f"assign_roles:     {ASSIGN_ROLES}")
-    print(f"num_roles:        {NUM_ROLES}")
-    print(f"probe_chance:     {1.0/NUM_ROLES:.3f}" if ASSIGN_ROLES else "probe_chance:     0.500")
+    print("---", flush=True)
+    print(f"effrank_n:        {last_effrank_n:.4f}", flush=True)
+    print(f"probe_acc:        {probe_acc:.4f}", flush=True)
+    print(f"d_act:            {last_d_act:.4f}", flush=True)
+    print(f"training_seconds: {training_seconds:.1f}", flush=True)
+    print(f"total_seconds:    {time.time() - train_start:.1f}", flush=True)
+    print(f"num_steps:        {total_steps}", flush=True)
+    print(f"num_agents:       {NUM_AGENTS}", flush=True)
+    print(f"reward_type:      {REWARD_TYPE}", flush=True)
+    print(f"use_contrastive:  {USE_CONTRASTIVE}", flush=True)
+    print(f"assign_roles:     {ASSIGN_ROLES}", flush=True)
+    print(f"num_roles:        {NUM_ROLES}", flush=True)
+    print(f"probe_chance:     {1.0/NUM_ROLES:.3f}" if ASSIGN_ROLES else "probe_chance:     0.500", flush=True)
 
 
 if __name__ == "__main__":
