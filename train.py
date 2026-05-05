@@ -23,7 +23,7 @@ warnings.filterwarnings("ignore")
 # EXPERIMENT CONFIG — agent modifies these
 # =============================================================================
 
-REWARD_TYPE = "shared"           # "individual", "shared", or "mixed"
+REWARD_TYPE = "individual"       # "individual", "shared", or "mixed"
 MIXED_INDIVIDUAL_WEIGHT = 0.2    # weight of individual reward in mixed mode (rest is shared)
 USE_CONTRASTIVE = False          # add inter-agent InfoNCE loss
 CONTRASTIVE_ALPHA = 6.8e-4       # contrastive loss weight
@@ -44,7 +44,7 @@ ASSIGN_ROLES = True             # append one-hot role ID to each agent's observa
 NUM_ROLES = 3                   # number of distinct roles (agents split evenly by index)
 
 # Fixed constants (do not modify)
-TRAIN_BUDGET_SECONDS = 180      # 3-minute wall-clock budget for fast iteration
+TRAIN_BUDGET_SECONDS = 600      # 10-minute budget — need convergence to see reward effect
 PROBE_EVAL_STEPS = 200          # steps to collect for probe evaluation
 EFFRANK_FREQ = 1                # compute EffRank every update
 SEED = 0
