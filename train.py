@@ -282,6 +282,10 @@ def compute_gae(rewards, values, dones, gamma=GAMMA, lam=GAE_LAMBDA):
 def main(dry_run: bool = False):
     torch.manual_seed(SEED)
     np.random.seed(SEED)
+    # PYTORCH_ENABLE_MPS_FALLBACK=1 required: certain post-update MPS ops
+    # fail MLIR compilation without it; the fallback drops those to CPU silently.
+    import os
+    os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
     env = make_env(NUM_AGENTS)
@@ -428,11 +432,11 @@ def main(dry_run: bool = False):
             last_effrank_n = er / NUM_AGENTS
             effrank_history.append(last_effrank_n)
 
-            # Action diversity
+            # Action diversity — use forward() directly to get logits, not sampled actions
             logits_list = []
             with torch.no_grad():
                 for i in range(NUM_AGENTS):
-                    lgt, _, _, _, _ = model.get_action_and_value(sample_obs[i:i+1])
+                    lgt, _, _ = model(sample_obs[i:i+1])
                     logits_list.append(lgt.squeeze(0))
             last_d_act = action_diversity(logits_list)
 
