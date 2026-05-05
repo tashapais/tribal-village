@@ -40,9 +40,9 @@ task wasm, "Build Tribal Village WASM demo":
     htmlOut = root / htmlOutRel
     nimcacheRel = "build/web/nimcache"
 
-  ensureDir(outDir)
-  ensureDir(nimcacheDir)
-  ensureDir(emCacheDir)
+  mkDir(outDir)
+  mkDir(nimcacheDir)
+  mkDir(emCacheDir)
 
   if not fileExists(shellFile):
     raise newException(OSError, &"Missing Emscripten shell file at {shellFile}.")

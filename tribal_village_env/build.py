@@ -201,6 +201,7 @@ def _install_nim_deps(project_root: Path) -> None:
         raise RuntimeError(f"nimby.lock missing at {lockfile}")
 
     nim_cfg = project_root / "nim.cfg"
+    saved_nim_cfg = nim_cfg.read_text() if nim_cfg.exists() else None
     if nim_cfg.exists():
         nim_cfg.unlink()
 
@@ -211,6 +212,9 @@ def _install_nim_deps(project_root: Path) -> None:
         text=True,
     )
     if result.returncode != 0:
+        if saved_nim_cfg is not None and not nim_cfg.exists():
+            nim_cfg.write_text(saved_nim_cfg)
+            return
         stdout = result.stdout.strip()
         stderr = result.stderr.strip()
         raise RuntimeError(
