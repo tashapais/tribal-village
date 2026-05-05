@@ -44,9 +44,9 @@ ASSIGN_ROLES = False            # append one-hot role ID to each agent's observa
 NUM_ROLES = 3                   # number of distinct roles (agents split evenly by index)
 
 # Fixed constants (do not modify)
-TRAIN_BUDGET_SECONDS = 600      # 10-minute wall-clock budget
-PROBE_EVAL_STEPS = 200          # steps to collect for probe evaluation (200 is plenty for 12-agent LR)
-EFFRANK_FREQ = 5                # compute EffRank every N updates
+TRAIN_BUDGET_SECONDS = 180      # 3-minute wall-clock budget for fast iteration
+PROBE_EVAL_STEPS = 200          # steps to collect for probe evaluation
+EFFRANK_FREQ = 1                # compute EffRank every update
 SEED = 0
 
 # =============================================================================
