@@ -40,13 +40,13 @@ MINIBATCH_SIZE = 256
 ROLLOUT_STEPS = 512             # steps per rollout before update
 ENCODER_HIDDEN = 256            # encoder hidden size
 ENCODER_LAYERS = 2              # number of encoder layers
-ASSIGN_ROLES = True             # append one-hot role ID to each agent's observation
+ASSIGN_ROLES = False            # append one-hot role ID to each agent's observation
 NUM_ROLES = 3                   # number of distinct roles (agents split evenly by index)
 
 # Fixed constants (do not modify)
 TRAIN_BUDGET_SECONDS = 600      # 10-minute wall-clock budget
-PROBE_EVAL_STEPS = 2000         # steps to collect for probe evaluation
-EFFRANK_FREQ = 20               # compute EffRank every N updates
+PROBE_EVAL_STEPS = 200          # steps to collect for probe evaluation (200 is plenty for 12-agent LR)
+EFFRANK_FREQ = 5                # compute EffRank every N updates
 SEED = 0
 
 # =============================================================================
