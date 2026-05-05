@@ -40,7 +40,7 @@ MINIBATCH_SIZE = 256
 ROLLOUT_STEPS = 512             # steps per rollout before update
 ENCODER_HIDDEN = 256            # encoder hidden size
 ENCODER_LAYERS = 2              # number of encoder layers
-ASSIGN_ROLES = False            # append one-hot role ID to each agent's observation
+ASSIGN_ROLES = True             # append one-hot role ID to each agent's observation
 NUM_ROLES = 3                   # number of distinct roles (agents split evenly by index)
 
 # Fixed constants (do not modify)
