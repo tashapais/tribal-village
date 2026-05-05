@@ -48,8 +48,10 @@ Your job is to find configurations that maximize `effrank_n` under the shared-re
 ## Running an experiment
 
 ```bash
-conda run -n tribal-village python train.py > run.log 2>&1
+conda activate tribal-village && python train.py > run.log 2>&1
 ```
+
+(Note: use `python train.py` directly, not `tribal-village train` — the cogames CLI train command requires private AWS dependencies. The standalone `train.py` uses only the installed `tribal_village_env` package.)
 
 The script runs for a **fixed 10-minute wall-clock budget** (excluding startup), then prints a summary:
 
