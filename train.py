@@ -482,6 +482,16 @@ def main(dry_run: bool = False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dry-run", action="store_true", help="Check env loads, then exit")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--reward-type", choices=["individual", "shared", "mixed"])
+    parser.add_argument("--assign-roles", type=int, choices=[0, 1])
+    parser.add_argument("--budget", type=int, help="Training budget in seconds")
+    parser.add_argument("--seed", type=int)
     args = parser.parse_args()
+
+    if args.reward_type:  REWARD_TYPE    = args.reward_type
+    if args.assign_roles is not None: ASSIGN_ROLES = bool(args.assign_roles)
+    if args.budget:       TRAIN_BUDGET_SECONDS = args.budget
+    if args.seed is not None: SEED = args.seed
+
     main(dry_run=args.dry_run)

@@ -1,0 +1,8 @@
+commit	effrank_n	probe_acc	reward_type	status	description
+7f384b33	0.3674	0.5000	individual	discard	no roles assigned - all agents identical d_act=0
+59a53445	0.5736	0.4167	individual	keep	individual rewards assign_roles=True baseline
+ca3e7408	0.7175	0.4167	shared	discard	shared rewards assign_roles=True - too short, no collapse visible
+3d7a1b6d	0.6418	0.4167	individual	keep	individual rewards 10min assign_roles=True
+7496ebe4	0.4221	0.4167	shared	keep	shared rewards 10min assign_roles=True - effrank drops 34%
+7496ebe4	0.5497	0.4167	mixed	keep	mixed rewards 0.2ind+0.8shared 10min - partial collapse
+7496ebe4	0.6899	0.2500	individual	keep	individual seed=2 10min - effrank higher, probe below chance??
