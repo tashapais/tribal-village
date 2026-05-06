@@ -1,0 +1,153 @@
+Starting training: agents=12 reward=mixed contrastive=False device=mps
+update=0 steps=6144 elapsed=5s effrank_n=0.759 d_act=0.0000 loss=-0.1270
+update=1 steps=12288 elapsed=9s effrank_n=0.760 d_act=0.0000 loss=-0.1366
+update=2 steps=18432 elapsed=13s effrank_n=0.778 d_act=0.0000 loss=-0.1002
+update=3 steps=24576 elapsed=18s effrank_n=0.788 d_act=0.0000 loss=-0.1838
+update=4 steps=30720 elapsed=22s effrank_n=0.787 d_act=0.0000 loss=-0.0427
+update=5 steps=36864 elapsed=26s effrank_n=0.784 d_act=0.0000 loss=0.0140
+update=6 steps=43008 elapsed=30s effrank_n=0.775 d_act=0.0000 loss=-0.1882
+update=7 steps=49152 elapsed=35s effrank_n=0.770 d_act=0.0000 loss=-0.2034
+update=8 steps=55296 elapsed=39s effrank_n=0.764 d_act=0.0000 loss=0.0008
+update=9 steps=61440 elapsed=43s effrank_n=0.761 d_act=0.0000 loss=0.0107
+update=10 steps=67584 elapsed=48s effrank_n=0.749 d_act=0.0000 loss=-0.0334
+update=11 steps=73728 elapsed=52s effrank_n=0.736 d_act=0.0000 loss=-0.0699
+update=12 steps=79872 elapsed=56s effrank_n=0.746 d_act=0.0000 loss=0.0102
+update=13 steps=86016 elapsed=61s effrank_n=0.731 d_act=0.0000 loss=0.0108
+update=14 steps=92160 elapsed=65s effrank_n=0.737 d_act=0.0000 loss=-0.1107
+update=15 steps=98304 elapsed=69s effrank_n=0.751 d_act=0.0000 loss=0.0126
+update=16 steps=104448 elapsed=74s effrank_n=0.745 d_act=0.0000 loss=0.0190
+update=17 steps=110592 elapsed=78s effrank_n=0.758 d_act=0.0000 loss=0.0204
+update=18 steps=116736 elapsed=82s effrank_n=0.768 d_act=0.0000 loss=-0.0982
+update=19 steps=122880 elapsed=87s effrank_n=0.761 d_act=0.0000 loss=-0.1332
+update=20 steps=129024 elapsed=91s effrank_n=0.751 d_act=0.0000 loss=-0.1379
+update=21 steps=135168 elapsed=95s effrank_n=0.743 d_act=0.0000 loss=-0.0551
+update=22 steps=141312 elapsed=100s effrank_n=0.748 d_act=0.0000 loss=-0.0135
+update=23 steps=147456 elapsed=104s effrank_n=0.753 d_act=0.0000 loss=-0.0920
+update=24 steps=153600 elapsed=108s effrank_n=0.744 d_act=0.0000 loss=0.0078
+update=25 steps=159744 elapsed=113s effrank_n=0.746 d_act=0.0000 loss=-0.1506
+update=26 steps=165888 elapsed=117s effrank_n=0.747 d_act=0.0000 loss=-0.0833
+update=27 steps=172032 elapsed=122s effrank_n=0.751 d_act=0.0000 loss=-0.0003
+update=28 steps=178176 elapsed=126s effrank_n=0.745 d_act=0.0000 loss=0.0024
+update=29 steps=184320 elapsed=130s effrank_n=0.733 d_act=0.0000 loss=0.0109
+update=30 steps=190464 elapsed=135s effrank_n=0.731 d_act=0.0000 loss=0.0216
+update=31 steps=196608 elapsed=139s effrank_n=0.733 d_act=0.0000 loss=-0.1010
+update=32 steps=202752 elapsed=143s effrank_n=0.735 d_act=0.0000 loss=-0.1253
+update=33 steps=208896 elapsed=148s effrank_n=0.740 d_act=0.0000 loss=-0.0223
+update=34 steps=215040 elapsed=152s effrank_n=0.744 d_act=0.0000 loss=-0.0235
+update=35 steps=221184 elapsed=157s effrank_n=0.742 d_act=0.0000 loss=-0.0962
+update=36 steps=227328 elapsed=161s effrank_n=0.732 d_act=0.0000 loss=0.0127
+update=37 steps=233472 elapsed=165s effrank_n=0.734 d_act=0.0000 loss=0.0103
+update=38 steps=239616 elapsed=170s effrank_n=0.730 d_act=0.0000 loss=0.0196
+update=39 steps=245760 elapsed=174s effrank_n=0.738 d_act=0.0000 loss=0.0213
+update=40 steps=251904 elapsed=179s effrank_n=0.735 d_act=0.0000 loss=0.0069
+update=41 steps=258048 elapsed=183s effrank_n=0.730 d_act=0.0000 loss=-0.0096
+update=42 steps=264192 elapsed=187s effrank_n=0.725 d_act=0.0000 loss=-0.0390
+update=43 steps=270336 elapsed=192s effrank_n=0.723 d_act=0.0000 loss=-0.0886
+update=44 steps=276480 elapsed=196s effrank_n=0.715 d_act=0.0000 loss=-0.0253
+update=45 steps=282624 elapsed=200s effrank_n=0.704 d_act=0.0000 loss=-0.0150
+update=46 steps=288768 elapsed=205s effrank_n=0.698 d_act=0.0000 loss=-0.1314
+update=47 steps=294912 elapsed=209s effrank_n=0.699 d_act=0.0000 loss=-0.1230
+update=48 steps=301056 elapsed=214s effrank_n=0.700 d_act=0.0000 loss=0.0284
+update=49 steps=307200 elapsed=218s effrank_n=0.695 d_act=0.0000 loss=-0.0313
+update=50 steps=313344 elapsed=223s effrank_n=0.708 d_act=0.0000 loss=-0.0096
+update=51 steps=319488 elapsed=227s effrank_n=0.694 d_act=0.0000 loss=0.0348
+update=52 steps=325632 elapsed=231s effrank_n=0.694 d_act=0.0000 loss=0.0112
+update=53 steps=331776 elapsed=236s effrank_n=0.694 d_act=0.0000 loss=-0.0770
+update=54 steps=337920 elapsed=240s effrank_n=0.692 d_act=0.0000 loss=-0.0429
+update=55 steps=344064 elapsed=245s effrank_n=0.676 d_act=0.0000 loss=-0.0155
+update=56 steps=350208 elapsed=249s effrank_n=0.675 d_act=0.0000 loss=-0.2269
+update=57 steps=356352 elapsed=253s effrank_n=0.674 d_act=0.0000 loss=0.0131
+update=58 steps=362496 elapsed=258s effrank_n=0.674 d_act=0.0000 loss=0.0045
+update=59 steps=368640 elapsed=262s effrank_n=0.672 d_act=0.0000 loss=-0.0594
+update=60 steps=374784 elapsed=267s effrank_n=0.667 d_act=0.0000 loss=-0.0649
+update=61 steps=380928 elapsed=271s effrank_n=0.669 d_act=0.0000 loss=-0.0202
+update=62 steps=387072 elapsed=275s effrank_n=0.666 d_act=0.0000 loss=-0.0234
+update=63 steps=393216 elapsed=280s effrank_n=0.661 d_act=0.0000 loss=-0.2260
+update=64 steps=399360 elapsed=284s effrank_n=0.658 d_act=0.0000 loss=0.0222
+update=65 steps=405504 elapsed=288s effrank_n=0.663 d_act=0.0000 loss=-0.0252
+update=66 steps=411648 elapsed=293s effrank_n=0.657 d_act=0.0000 loss=-0.0636
+update=67 steps=417792 elapsed=297s effrank_n=0.651 d_act=0.0000 loss=-0.0665
+update=68 steps=423936 elapsed=301s effrank_n=0.649 d_act=0.0000 loss=-0.0924
+update=69 steps=430080 elapsed=306s effrank_n=0.632 d_act=0.0000 loss=0.0308
+update=70 steps=436224 elapsed=310s effrank_n=0.633 d_act=0.0000 loss=-0.0403
+update=71 steps=442368 elapsed=314s effrank_n=0.630 d_act=0.0000 loss=-0.0634
+update=72 steps=448512 elapsed=319s effrank_n=0.624 d_act=0.0000 loss=-0.0199
+update=73 steps=454656 elapsed=323s effrank_n=0.624 d_act=0.0000 loss=-0.0443
+update=74 steps=460800 elapsed=327s effrank_n=0.614 d_act=0.0000 loss=0.0402
+update=75 steps=466944 elapsed=332s effrank_n=0.608 d_act=0.0000 loss=0.0378
+update=76 steps=473088 elapsed=336s effrank_n=0.612 d_act=0.0000 loss=-0.0043
+update=77 steps=479232 elapsed=340s effrank_n=0.607 d_act=0.0000 loss=-0.0019
+update=78 steps=485376 elapsed=345s effrank_n=0.590 d_act=0.0000 loss=0.0298
+update=79 steps=491520 elapsed=349s effrank_n=0.584 d_act=0.0000 loss=-0.0689
+update=80 steps=497664 elapsed=353s effrank_n=0.581 d_act=0.0000 loss=0.0370
+update=81 steps=503808 elapsed=358s effrank_n=0.585 d_act=0.0000 loss=-0.0756
+update=82 steps=509952 elapsed=362s effrank_n=0.585 d_act=0.0000 loss=0.0247
+update=83 steps=516096 elapsed=366s effrank_n=0.594 d_act=0.0000 loss=-0.1685
+update=84 steps=522240 elapsed=371s effrank_n=0.585 d_act=0.0000 loss=-0.0166
+update=85 steps=528384 elapsed=375s effrank_n=0.575 d_act=0.0000 loss=-0.1743
+update=86 steps=534528 elapsed=380s effrank_n=0.567 d_act=0.0000 loss=-0.1600
+update=87 steps=540672 elapsed=384s effrank_n=0.567 d_act=0.0000 loss=-0.0438
+update=88 steps=546816 elapsed=388s effrank_n=0.566 d_act=0.0000 loss=-0.0871
+update=89 steps=552960 elapsed=393s effrank_n=0.560 d_act=0.0000 loss=-0.0323
+update=90 steps=559104 elapsed=397s effrank_n=0.564 d_act=0.0000 loss=0.0027
+update=91 steps=565248 elapsed=401s effrank_n=0.567 d_act=0.0000 loss=-0.1353
+update=92 steps=571392 elapsed=406s effrank_n=0.565 d_act=0.0000 loss=0.0280
+update=93 steps=577536 elapsed=410s effrank_n=0.563 d_act=0.0000 loss=0.0161
+update=94 steps=583680 elapsed=414s effrank_n=0.563 d_act=0.0000 loss=-0.0940
+update=95 steps=589824 elapsed=419s effrank_n=0.562 d_act=0.0000 loss=-0.0672
+update=96 steps=595968 elapsed=423s effrank_n=0.557 d_act=0.0000 loss=-0.2082
+update=97 steps=602112 elapsed=427s effrank_n=0.566 d_act=0.0000 loss=0.0197
+update=98 steps=608256 elapsed=432s effrank_n=0.562 d_act=0.0000 loss=-0.1101
+update=99 steps=614400 elapsed=436s effrank_n=0.563 d_act=0.0000 loss=-0.0019
+update=100 steps=620544 elapsed=441s effrank_n=0.563 d_act=0.0000 loss=0.0275
+update=101 steps=626688 elapsed=445s effrank_n=0.565 d_act=0.0000 loss=0.0255
+update=102 steps=632832 elapsed=449s effrank_n=0.567 d_act=0.0000 loss=-0.1092
+update=103 steps=638976 elapsed=454s effrank_n=0.576 d_act=0.0000 loss=-0.1482
+update=104 steps=645120 elapsed=458s effrank_n=0.576 d_act=0.0000 loss=-0.0638
+update=105 steps=651264 elapsed=462s effrank_n=0.566 d_act=0.0000 loss=0.0164
+update=106 steps=657408 elapsed=467s effrank_n=0.563 d_act=0.0000 loss=-0.0925
+update=107 steps=663552 elapsed=471s effrank_n=0.568 d_act=0.0000 loss=-0.1164
+update=108 steps=669696 elapsed=476s effrank_n=0.565 d_act=0.0000 loss=-0.0909
+update=109 steps=675840 elapsed=480s effrank_n=0.562 d_act=0.0000 loss=0.0255
+update=110 steps=681984 elapsed=484s effrank_n=0.559 d_act=0.0000 loss=-0.1607
+update=111 steps=688128 elapsed=489s effrank_n=0.559 d_act=0.0000 loss=-0.0860
+update=112 steps=694272 elapsed=493s effrank_n=0.555 d_act=0.0000 loss=0.0115
+update=113 steps=700416 elapsed=497s effrank_n=0.555 d_act=0.0000 loss=-0.0396
+update=114 steps=706560 elapsed=502s effrank_n=0.561 d_act=0.0000 loss=-0.0307
+update=115 steps=712704 elapsed=506s effrank_n=0.558 d_act=0.0000 loss=0.0303
+update=116 steps=718848 elapsed=510s effrank_n=0.555 d_act=0.0000 loss=-0.0610
+update=117 steps=724992 elapsed=515s effrank_n=0.548 d_act=0.0000 loss=-0.0049
+update=118 steps=731136 elapsed=519s effrank_n=0.554 d_act=0.0000 loss=0.0080
+update=119 steps=737280 elapsed=523s effrank_n=0.556 d_act=0.0000 loss=-0.0862
+update=120 steps=743424 elapsed=528s effrank_n=0.550 d_act=0.0000 loss=-0.0086
+update=121 steps=749568 elapsed=532s effrank_n=0.549 d_act=0.0000 loss=0.0209
+update=122 steps=755712 elapsed=537s effrank_n=0.549 d_act=0.0000 loss=-0.0710
+update=123 steps=761856 elapsed=541s effrank_n=0.547 d_act=0.0000 loss=-0.1669
+update=124 steps=768000 elapsed=545s effrank_n=0.546 d_act=0.0000 loss=-0.1867
+update=125 steps=774144 elapsed=550s effrank_n=0.542 d_act=0.0000 loss=-0.1869
+update=126 steps=780288 elapsed=554s effrank_n=0.543 d_act=0.0000 loss=-0.2304
+update=127 steps=786432 elapsed=558s effrank_n=0.543 d_act=0.0000 loss=-0.0190
+update=128 steps=792576 elapsed=563s effrank_n=0.538 d_act=0.0000 loss=-0.0130
+update=129 steps=798720 elapsed=567s effrank_n=0.542 d_act=0.0000 loss=-0.0658
+update=130 steps=804864 elapsed=572s effrank_n=0.541 d_act=0.0000 loss=0.0247
+update=131 steps=811008 elapsed=576s effrank_n=0.547 d_act=0.0000 loss=0.0016
+update=132 steps=817152 elapsed=581s effrank_n=0.550 d_act=0.0000 loss=-0.0390
+update=133 steps=823296 elapsed=585s effrank_n=0.539 d_act=0.0000 loss=-0.1101
+update=134 steps=829440 elapsed=590s effrank_n=0.545 d_act=0.0000 loss=-0.0647
+update=135 steps=835584 elapsed=594s effrank_n=0.546 d_act=0.0000 loss=-0.0140
+update=136 steps=841728 elapsed=598s effrank_n=0.549 d_act=0.0000 loss=-0.0535
+update=137 steps=847872 elapsed=603s effrank_n=0.550 d_act=0.0000 loss=0.0059
+probe: collecting 200 steps...
+---
+effrank_n:        0.5497
+probe_acc:        0.4167
+d_act:            0.0000
+training_seconds: 602.7
+total_seconds:    604.4
+num_steps:        847872
+num_agents:       12
+reward_type:      mixed
+use_contrastive:  False
+assign_roles:     True
+num_roles:        3
+probe_chance:     0.333
