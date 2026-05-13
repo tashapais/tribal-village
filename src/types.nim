@@ -19,31 +19,31 @@ const
   MapLayoutRoomsX* = 1
   MapLayoutRoomsY* = 1
   MapBorder* = 1
-  MapRoomWidth* = 305  # ~6% larger than 288
-  MapRoomHeight* = 191  # ~6% larger than 180
+  MapRoomWidth* = 80
+  MapRoomHeight* = 80
   MapRoomBorder* = 0
 
   # World Objects
-  # Eight teams with 125 agents each -> 1000 agents total.
-  MapRoomObjectsTeams* = 8
+  # One team with 12 agents — compact arena for representation geometry experiments.
+  MapRoomObjectsTeams* = 1
   GoblinTeamId* = MapRoomObjectsTeams
-  MapAgentsPerTeam* = 125
-  MapRoomObjectsGoblinAgents* = 6
+  MapAgentsPerTeam* = 12
+  MapRoomObjectsGoblinAgents* = 0
   MapRoomObjectsAgents* = MapRoomObjectsTeams * MapAgentsPerTeam + MapRoomObjectsGoblinAgents
     ## Agent slots across all teams plus goblins
-  MapRoomObjectsMagmaPools* = 72
-  MapRoomObjectsMagmaClusters* = 36
-  MapRoomObjectsStoneClusters* = 48
-  MapRoomObjectsStoneClusterCount* = 28
-  MapRoomObjectsGoldClusters* = 48
-  MapRoomObjectsGoldClusterCount* = 28
-  MapRoomObjectsWalls* = 30
-  MapRoomObjectsCows* = 24
-  MapRoomObjectsBears* = 6
-  MapRoomObjectsWolves* = 12
-  MapRoomObjectsRelics* = 18
-  MapRoomObjectsGoblinHuts* = 3
-  MapRoomObjectsGoblinTotems* = 2
+  MapRoomObjectsMagmaPools* = 6
+  MapRoomObjectsMagmaClusters* = 3
+  MapRoomObjectsStoneClusters* = 5
+  MapRoomObjectsStoneClusterCount* = 8
+  MapRoomObjectsGoldClusters* = 5
+  MapRoomObjectsGoldClusterCount* = 8
+  MapRoomObjectsWalls* = 3
+  MapRoomObjectsCows* = 3
+  MapRoomObjectsBears* = 0
+  MapRoomObjectsWolves* = 1
+  MapRoomObjectsRelics* = 2
+  MapRoomObjectsGoblinHuts* = 0
+  MapRoomObjectsGoblinTotems* = 0
 
   # Agent Parameters
   MapObjectAgentMaxInventory* = 5
@@ -136,18 +136,11 @@ const
   ## TeamMasks[N] = 1 << N, with special case for invalid teams
   TeamMasks*: array[MapRoomObjectsTeams + 1, TeamMask] = [
     0b00000001'u8,  # Team 0
-    0b00000010'u8,  # Team 1
-    0b00000100'u8,  # Team 2
-    0b00001000'u8,  # Team 3
-    0b00010000'u8,  # Team 4
-    0b00100000'u8,  # Team 5
-    0b01000000'u8,  # Team 6
-    0b10000000'u8,  # Team 7
     0b00000000'u8   # Goblins/invalid (no team affiliation)
   ]
 
   ## Mask with all valid teams set (for alliance systems)
-  AllTeamsMask*: TeamMask = 0b11111111'u8
+  AllTeamsMask*: TeamMask = 0b00000001'u8
 
   ## Empty mask (no team affiliation)
   NoTeamMask*: TeamMask = 0b00000000'u8

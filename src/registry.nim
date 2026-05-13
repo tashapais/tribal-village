@@ -374,14 +374,7 @@ proc buildingHasTrain*(kind: ThingKind): bool =
 
 # Castle unique units by team (civilization)
 const CastleUniqueUnits*: array[MapRoomObjectsTeams, AgentUnitClass] = [
-  UnitSamurai,        # Team 0
-  UnitLongbowman,     # Team 1
-  UnitCataphract,     # Team 2
-  UnitWoadRaider,     # Team 3
-  UnitTeutonicKnight, # Team 4
-  UnitHuskarl,        # Team 5
-  UnitMameluke,       # Team 6
-  UnitJanissary       # Team 7
+  UnitSamurai        # Team 0
 ]
 
 proc buildingTrainUnit*(kind: ThingKind, teamId: int = -1): AgentUnitClass =
