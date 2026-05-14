@@ -186,11 +186,12 @@ def d_act(model, obs_t, avail_t, device):
             logits, _, _ = model(obs_t[i:i+1])
             av = avail_t[i:i+1]
             logits = logits - 1e10 * (1 - av)
-            probs.append(F.softmax(logits.squeeze(0), dim=-1))
+            p = F.softmax(logits.squeeze(0), dim=-1).clamp(min=1e-8)
+            probs.append(p / p.sum())
     kl, count = 0.0, 0
     for i in range(len(probs)):
         for j in range(i+1, len(probs)):
-            kl += F.kl_div(probs[i].log(), probs[j], reduction="batchmean").item()
+            kl += (probs[j] * (probs[j].log() - probs[i].log())).sum().item()
             count += 1
     return kl / max(count, 1)
 
@@ -231,6 +232,9 @@ def train_and_collect(reward_type: str, device):
 
             if reward_type == "shared":
                 r = np.full(n_agents, team_r, dtype=np.float32)
+            elif reward_type == "mixed":
+                ind_r = get_individual_rewards(env, actions)
+                r = 0.2 * ind_r + 0.8 * team_r
             else:
                 r = get_individual_rewards(env, actions)
 
@@ -303,6 +307,7 @@ def train_and_collect(reward_type: str, device):
 
     all_Z, all_roles = [], []
     agent_Z = [[] for _ in range(n_agents)]  # per-agent for centroids
+    da_vals, er_vals = [], []
 
     for _ in range(N_EVAL_STEPS):
         obs_t   = torch.tensor(obs_arr, device=device)
@@ -315,6 +320,9 @@ def train_and_collect(reward_type: str, device):
             all_roles.append(role_labels[i])
             agent_Z[i].append(Z_np[i])
 
+        da_vals.append(d_act(model, obs_t, avail_t, device))
+        er_vals.append(effective_rank(Z) / n_agents)
+
         acts_t = Categorical(logits=model(obs_t)[0] - 1e10*(1-avail_t)).sample()
         actions = acts_t.cpu().numpy().tolist()
         _, terminated, _ = env.step(actions)
@@ -323,62 +331,61 @@ def train_and_collect(reward_type: str, device):
             role_labels = get_role_labels(env)
         obs_arr = get_obs(env)
 
-    # Final metrics on last obs
-    obs_t   = torch.tensor(obs_arr, device=device)
-    avail_t = torch.tensor(get_avail(env), device=device)
-    with torch.no_grad():
-        _, _, Z = model(obs_t)
-    final_er = effective_rank(Z) / n_agents
-    final_da = d_act(model, obs_t, avail_t, device)
-
     env.close()
+
+    mean_er = float(np.mean(er_vals))
+    mean_da = float(np.mean(da_vals))
+    print(f"  eval: effrank_n={mean_er:.3f}  d_act={mean_da:.4f}", flush=True)
 
     centroids = np.array([np.mean(agent_Z[i], axis=0) for i in range(n_agents)])
     return (np.array(all_Z), np.array(all_roles), centroids, role_labels,
-            final_er, final_da)
+            mean_er, mean_da)
 
 # ── PCA plot ─────────────────────────────────────────────────────────────────
-def make_pca_figure(ind_data, shr_data):
+CONDITIONS = [
+    ("individual", "Individual rewards"),
+    ("mixed",      "Mixed (80% shared)"),
+    ("shared",     "Shared rewards"),
+]
+PANEL_LABELS = "abc"
+
+def make_pca_figure(all_data):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from sklearn.decomposition import PCA
 
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5.5))
+    n = len(all_data)
+    fig, axes = plt.subplots(1, n, figsize=(6.5 * n, 5.5))
     fig.patch.set_facecolor("#ffffff")
 
-    for ax_i, (data, title) in enumerate([
-        (ind_data, "Individual rewards"),
-        (shr_data, "Shared rewards"),
-    ]):
+    for ax_i, ((reward_type, title), data) in enumerate(zip(CONDITIONS, all_data)):
         all_Z, all_roles, centroids, agent_roles, er, da = data
         ax = axes[ax_i]
         ax.set_facecolor("#ffffff")
 
-        # Fit PCA on all embeddings (dots + centroids together)
         combined = np.vstack([all_Z, centroids])
         pca = PCA(n_components=2)
         pca.fit(combined)
-        Z2        = pca.transform(all_Z)
-        cent2     = pca.transform(centroids)
-        var       = pca.explained_variance_ratio_
+        Z2    = pca.transform(all_Z)
+        cent2 = pca.transform(centroids)
+        var   = pca.explained_variance_ratio_
 
-        # Small dots per timestep, colored by role, semi-transparent
         for role_id in range(NUM_ROLES):
             mask = all_roles == role_id
             ax.scatter(Z2[mask, 0], Z2[mask, 1],
                        color=ROLE_COLORS[role_id], alpha=0.22, s=12,
                        linewidths=0, label=ROLE_LABELS[role_id])
 
-        # Large outlined centroids colored by agent's current role
         for i in range(len(centroids)):
             role_id = int(agent_roles[i])
             ax.scatter(cent2[i, 0], cent2[i, 1],
                        color=ROLE_COLORS[role_id], s=160, zorder=5,
                        edgecolors="black", linewidths=1.6)
 
-        metric_str = f"EffRank/n={er:.3f}  D_act={da:.3f}"
-        ax.set_title(f"({'ab'[ax_i]}) {title}\n{metric_str}",
+        da_str = f"{da:.3f}" if not (da != da) else "n/a"
+        metric_str = f"EffRank/n={er:.3f}  D_act={da_str}"
+        ax.set_title(f"({PANEL_LABELS[ax_i]}) {title}\n{metric_str}",
                      fontsize=12, fontweight="bold", pad=8)
         ax.set_xlabel(f"PC 1 ({var[0]*100:.1f}%)", fontsize=10)
         ax.set_ylabel(f"PC 2 ({var[1]*100:.1f}%)", fontsize=10)
@@ -388,7 +395,7 @@ def make_pca_figure(ind_data, shr_data):
             ax.legend(fontsize=8, loc="best", framealpha=0.85,
                       markerscale=1.4, handletextpad=0.4)
 
-    fig.suptitle(r"SMACv2 (10gen\_terran): Feedback attribution and embedding geometry",
+    fig.suptitle(r"SMACv2 (10gen\_terran): geometry saturates, $D_\mathrm{act}$ tracks attribution",
                  fontsize=13, fontweight="bold", y=1.01)
     plt.tight_layout()
     os.makedirs(os.path.dirname(os.path.abspath(OUT_PATH)), exist_ok=True)
@@ -401,8 +408,9 @@ if __name__ == "__main__":
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     print(f"Device: {device}", flush=True)
 
-    ind_data = train_and_collect("individual", device)
-    shr_data = train_and_collect("shared",     device)
+    all_data = []
+    for reward_type, _ in CONDITIONS:
+        all_data.append(train_and_collect(reward_type, device))
 
     print("\nGenerating PCA figure...", flush=True)
-    make_pca_figure(ind_data, shr_data)
+    make_pca_figure(all_data)
