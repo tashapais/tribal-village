@@ -3,9 +3,12 @@ SMACv2 representation geometry training script.
 Mirrors train.py but uses the SMACv2 centralized-step API.
 
 Unit types: marine=role 0, marauder=role 1, medivac=role 2.
-Individual reward approximation: agents that take attack actions (action_id >= n_move)
-receive the full team reward; others receive 0. This creates heterogeneous gradient
-signals without requiring per-agent game-state instrumentation.
+Individual rewards use the SC2 API directly:
+  - Attackers (marine/marauder): delta-HP of their targeted enemy + kill bonus,
+    split equally among agents that targeted the same enemy in the same step.
+  - Healers (medivac): delta-HP restored to their targeted ally.
+  - Move/stop/dead agents: 0 (plus a death penalty for agents that just died).
+  All values are scaled by the same factor as SMAC's team reward.
 
 Usage:
   python train_smacv2.py --reward-type individual
@@ -47,9 +50,19 @@ MINIBATCH_SIZE       = 256
 ROLLOUT_STEPS        = 128        # smaller than tribal-village (SC2 steps are heavier)
 ENCODER_HIDDEN       = 256
 ENCODER_LAYERS       = 2
-TRAIN_BUDGET_SECONDS = 600
+TRAIN_BUDGET_SECONDS = 1800       # 30-min hard cap; convergence check stops earlier
 PROBE_EVAL_EPISODES  = 5          # collect this many episodes for probe
 SEED                 = 0
+
+# Convergence: EMA-smoothed loss must have std < CONV_STD_TOL over CONV_WINDOW updates.
+# EMA filters per-minibatch spikes; std of the smoothed signal detects plateau.
+CONV_EMA_ALPHA = 0.1   # smoothing factor (lower = smoother)
+CONV_WINDOW    = 30    # updates in rolling window of the EMA loss
+CONV_STD_TOL   = 0.03  # std of EMA loss over window → convergence
+MIN_UPDATES    = 80    # minimum updates before convergence can trigger (~3 min)
+
+# Where to append a result line (TSV)
+RESULTS_FILE = "/Users/tasha/Documents/Github/tribal-village/results_smacv2.tsv"
 
 MAP_NAME = "10gen_terran"
 
@@ -110,6 +123,78 @@ def get_obs_array(env) -> np.ndarray:
     """Return obs as (n_agents, obs_dim) float32 array."""
     obs_list = env.get_obs()
     return np.stack(obs_list).astype(np.float32)
+
+
+def get_individual_rewards(env, actions: list[int]) -> np.ndarray:
+    """
+    Per-agent individual rewards from SC2 API health deltas.
+
+    Attackers credit: damage dealt to their targeted enemy + kill bonus,
+    split equally among co-attackers of the same target.
+    Medivac credit: HP restored to targeted ally.
+    Dying agent penalty: -reward_death_value * neg_scale.
+    All values use SMAC's reward_scale factor.
+    """
+    inner = env.env  # StarCraft2Env
+    n = env.n_agents
+    rewards = np.zeros(n, dtype=np.float32)
+
+    neg_scale = inner.reward_negative_scale
+    n_no_attack = inner.n_actions_no_attack
+    is_terran = inner.map_type in ["MMM", "terran_gen"]
+
+    # Map target → list of agent ids for splitting credit
+    enemy_attackers: dict[int, list[int]] = {}
+    ally_healers:    dict[int, list[int]] = {}
+
+    for a_id, action in enumerate(actions):
+        unit = inner.agents[a_id]
+        if unit.health == 0 or action < n_no_attack:
+            continue
+        target_id = action - n_no_attack
+        if is_terran and unit.unit_type == inner.medivac_id:
+            ally_healers.setdefault(target_id, []).append(a_id)
+        else:
+            enemy_attackers.setdefault(target_id, []).append(a_id)
+
+    # Attacker credit: enemy HP delta + kill bonus, split among co-attackers
+    for e_id, attacker_ids in enemy_attackers.items():
+        prev = inner.previous_enemy_units.get(e_id)
+        curr = inner.enemies.get(e_id)
+        if prev is None or curr is None:
+            continue
+        prev_hp = prev.health + prev.shield
+        curr_hp  = (curr.health + curr.shield) if curr.health > 0 else 0.0
+        damage = max(0.0, prev_hp - curr_hp)
+        kill_bonus = inner.reward_death_value if (curr.health == 0 and prev.health > 0) else 0.0
+        credit = (damage + kill_bonus) / len(attacker_ids)
+        for a_id in attacker_ids:
+            rewards[a_id] += credit
+
+    # Medivac credit: ally HP restored
+    for al_id, healer_ids in ally_healers.items():
+        prev = inner.previous_ally_units.get(al_id)
+        curr = inner.agents.get(al_id)
+        if prev is None or curr is None:
+            continue
+        heal = max(0.0, curr.health - prev.health)
+        credit = heal / len(healer_ids)
+        for a_id in healer_ids:
+            rewards[a_id] += credit
+
+    # Death penalty for agents that just died this step
+    for a_id in range(n):
+        prev = inner.previous_ally_units.get(a_id)
+        curr = inner.agents.get(a_id)
+        if prev is not None and curr is not None and prev.health > 0 and curr.health == 0:
+            rewards[a_id] -= inner.reward_death_value * neg_scale
+
+    # Apply same scaling as SMAC team reward
+    if inner.reward_scale and inner.max_reward > 0:
+        scale = inner.max_reward / inner.reward_scale_rate
+        rewards /= scale
+
+    return rewards
 
 
 # =============================================================================
@@ -272,6 +357,9 @@ def main(dry_run: bool = False):
     last_effrank_n = float("nan")
     last_d_act     = float("nan")
     last_loss      = float("nan")
+    ema_loss: float | None = None   # EMA-smoothed loss
+    ema_history: list[float] = []   # history of EMA values for convergence check
+    converged = False
 
     # Rollout buffers (flat: T * n_agents)
     obs_buf, act_buf, logp_buf = [], [], []
@@ -282,6 +370,8 @@ def main(dry_run: bool = False):
     while True:
         elapsed = time.time() - train_start
         if elapsed >= TRAIN_BUDGET_SECONDS:
+            break
+        if converged:
             break
 
         # ── Rollout ────────────────────────────────────────────────────────
@@ -301,15 +391,8 @@ def main(dry_run: bool = False):
             if REWARD_TYPE == "shared":
                 r = np.full(n_agents, team_reward, dtype=np.float32)
             else:
-                # Individual: attack-credit heuristic
-                # Actions >= 6 are attack actions in 10gen_terran
-                N_MOVE_ACTIONS = 6
-                attack_mask = np.array(actions) >= N_MOVE_ACTIONS
-                total_attackers = attack_mask.sum()
-                if total_attackers > 0 and team_reward > 0:
-                    r = (attack_mask.astype(np.float32) * team_reward * n_agents / total_attackers)
-                else:
-                    r = np.full(n_agents, team_reward, dtype=np.float32)
+                # Individual: per-agent HP-delta credit from SC2 API
+                r = get_individual_rewards(env, actions)
 
             obs_buf.append(obs_arr.copy())
             act_buf.append(np.array(actions, dtype=np.int64))
@@ -370,8 +453,25 @@ def main(dry_run: bool = False):
         last_d_act = action_diversity(logits_list)
 
         elapsed = time.time() - train_start
+
+        # Convergence check: EMA-smoothed loss plateau
+        if ema_loss is None:
+            ema_loss = last_loss
+        else:
+            ema_loss = CONV_EMA_ALPHA * last_loss + (1 - CONV_EMA_ALPHA) * ema_loss
+        ema_history.append(ema_loss)
+        if update_count >= MIN_UPDATES and len(ema_history) >= CONV_WINDOW:
+            window = ema_history[-CONV_WINDOW:]
+            mean_w = sum(window) / len(window)
+            std_w  = (sum((v - mean_w) ** 2 for v in window) / len(window)) ** 0.5
+            if std_w < CONV_STD_TOL:
+                converged = True
+
+        ema_str = f"{ema_loss:.4f}" if ema_loss is not None else "nan"
         print(f"update={update_count} steps={total_steps} elapsed={elapsed:.0f}s "
-              f"effrank_n={last_effrank_n:.3f} d_act={last_d_act:.4f} loss={last_loss:.4f}",
+              f"effrank_n={last_effrank_n:.3f} d_act={last_d_act:.4f} "
+              f"loss={last_loss:.4f} ema={ema_str}"
+              + (" [converged]" if converged else ""),
               flush=True)
 
         obs_buf.clear(); act_buf.clear(); logp_buf.clear()
@@ -399,6 +499,22 @@ def main(dry_run: bool = False):
     print(f"reward_type:      {REWARD_TYPE}", flush=True)
     print(f"env:              smacv2_{MAP_NAME}", flush=True)
     print(f"probe_chance:     {1.0/NUM_ROLES:.3f}", flush=True)
+    print(f"seed:             {SEED}", flush=True)
+    print(f"converged:        {converged}", flush=True)
+
+    # Append result to TSV
+    import csv, pathlib
+    result_path = pathlib.Path(RESULTS_FILE)
+    write_header = not result_path.exists()
+    with open(result_path, "a", newline="") as f:
+        writer = csv.writer(f, delimiter="\t")
+        if write_header:
+            writer.writerow(["env", "reward_type", "seed", "effrank_n", "probe_acc",
+                             "d_act", "num_steps", "training_seconds", "converged"])
+        writer.writerow([f"smacv2_{MAP_NAME}", REWARD_TYPE, SEED,
+                         f"{last_effrank_n:.4f}", f"{probe_acc:.4f}",
+                         f"{last_d_act:.4f}", total_steps,
+                         f"{training_seconds:.1f}", converged])
 
 
 if __name__ == "__main__":

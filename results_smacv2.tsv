@@ -1,0 +1,7 @@
+env	reward_type	seed	effrank_n	probe_acc	d_act	num_steps	training_seconds	converged
+smacv2_10gen_terran	individual	1	0.7662	0.7855	0.0426	62208	160.7	True
+smacv2_10gen_terran	shared	1	0.6225	0.9129	0.0694	62208	161.6	True
+smacv2_10gen_terran	individual	2	0.3258	0.8512	0.2066	62208	161.1	True
+smacv2_10gen_terran	individual	0	0.7736	0.7560	0.1520	62208	166.2	True
+smacv2_10gen_terran	shared	2	0.7536	0.7316	0.0431	90624	218.1	True
+smacv2_10gen_terran	shared	0	0.7931	0.7622	0.0069	121344	278.6	True
