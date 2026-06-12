@@ -106,11 +106,12 @@ class SMACEnv:
         return h
 
     def unit_labels(self) -> np.ndarray:
+        e = self.env.env
+        type_to_label = {e.marine_id: 0, e.marauder_id: 1, e.medivac_id: 2}
         labels = np.zeros(self.n_agents, np.int64)
         for i in range(self.n_agents):
-            u = self.env.env.agents.get(i)
-            name = self.env.env.unit_type_name(u.unit_type) if u is not None else "marine"
-            labels[i] = UNIT_TO_LABEL.get(name, 0)
+            u = e.agents.get(i)
+            labels[i] = type_to_label.get(u.unit_type, 0) if u is not None else 0
         return labels
 
     def reset(self):
