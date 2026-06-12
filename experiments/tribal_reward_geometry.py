@@ -183,21 +183,34 @@ _DIR_OFFSETS = {0: (0, -1), 1: (0, 1), 2: (-1, 0), 3: (1, 0),
 USE_VERB = 3  # action = USE_VERB*28 + direction interacts with the adjacent tile
 
 
+def _role_target_layers(n: int) -> np.ndarray:
+    labels = role_labels(n)
+    return np.array([ROLE_TARGET_LAYER[int(r)] for r in labels])
+
+
 def role_target_adjacent_dir(obs: np.ndarray) -> np.ndarray:
     """For each agent, the direction (0-7) to an adjacent (dist-1) tile of its
-    role's target layer, or -1 if none adjacent. Used for the use-affordance
-    bonus that teaches the gather/craft/deposit 'use' action."""
+    role's target layer, or -1 if none adjacent (vectorized over agents)."""
     n = obs.shape[0]
     cy, cx = obs.shape[2] // 2, obs.shape[3] // 2
-    labels = role_labels(n)
+    tl = _role_target_layers(n)
+    role_plane = obs[np.arange(n), tl]                     # (n, H, W) each agent's target layer
     out = np.full(n, -1, np.int64)
-    for i in range(n):
-        layer = ROLE_TARGET_LAYER[int(labels[i])]
-        for d, (dx, dy) in _DIR_OFFSETS.items():
-            if obs[i, layer, cy + dy, cx + dx] > 0:
-                out[i] = d
-                break
+    for d in range(7, -1, -1):                              # 8 fixed iterations (not over agents)
+        dx, dy = _DIR_OFFSETS[d]
+        present = role_plane[:, cy + dy, cx + dx] > 0
+        out[present] = d
     return out
+
+
+def role_potential_vec(obs: np.ndarray, dist_map: np.ndarray, far: float) -> np.ndarray:
+    """Per-agent negative distance to nearest role-target tile (vectorized)."""
+    n = obs.shape[0]
+    tl = _role_target_layers(n)
+    role_plane = obs[np.arange(n), tl] > 0                  # (n, H, W)
+    big = dist_map[None] + (~role_plane) * 1e6
+    mind = big.reshape(n, -1).min(axis=1)
+    return -np.where(mind > 1e5, far, mind)
 
 
 def role_potential(obs: np.ndarray) -> np.ndarray:
@@ -342,6 +355,7 @@ def train(args):
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+    torch.set_num_threads(args.torch_threads)   # avoid 256-core thread thrash under heavy concurrency
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     shared_frac = args.shared_frac
@@ -359,9 +373,13 @@ def train(args):
                        "reward_cfg": REWARD_CFG}, mode=args.wandb_mode, reinit=True)
 
     T = args.num_steps
+    # Precompute the egocentric manhattan distance map once (vectorized shaping).
+    cy, cx = env.obs_h // 2, env.obs_w // 2
+    yy, xx = np.mgrid[0:env.obs_h, 0:env.obs_w]
+    DIST_MAP = (np.abs(yy - cy) + np.abs(xx - cx)).astype(np.float64)
+    FAR = float(DIST_MAP.max() + 1)
     obs = env.reset()
-    prev_phi = role_potential(obs)
-    adj_dir = role_target_adjacent_dir(obs)
+    prev_phi = role_potential_vec(obs, DIST_MAP, FAR)
     gamma, lam, beta = args.gamma, args.gae_lambda, args.shaping_coef
 
     obs_buf = np.zeros((T, n, obs_dim), np.float32)
@@ -390,9 +408,9 @@ def train(args):
             # counters (dense + meaningful), plus a role-specific bonus on each
             # agent's own stage (specialization), plus role-aligned potential
             # shaping (guidance), then mixed by attribution granularity.
-            phi = role_potential(nobs)
+            phi = role_potential_vec(nobs, DIST_MAP, FAR)
             shaping = beta * (gamma * phi - prev_phi)
-            prev_phi = phi if not done else role_potential(nobs)
+            prev_phi = phi
             role_idx = role_labels(n)
             own_stage = stage[np.arange(n), role_idx]                 # this agent's role-stage events
             chain = 0.1 * stage[:, 0] + 0.5 * stage[:, 1] + 2.0 * stage[:, 2]  # shared chain value
@@ -544,6 +562,7 @@ def main():
     ap.add_argument("--log_interval", type=int, default=10)
     ap.add_argument("--ckpt_interval", type=int, default=200)
     ap.add_argument("--metric_interval", type=int, default=40, help="updates between periodic geometry-metric logging")
+    ap.add_argument("--torch_threads", type=int, default=2, help="torch intra-op threads (low avoids thrash under concurrency)")
     ap.add_argument("--wandb_project", type=str, default="rl_workshop_2026")
     ap.add_argument("--wandb_entity", type=str, default=None)
     ap.add_argument("--wandb_mode", type=str, default="online")

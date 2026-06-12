@@ -4,6 +4,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.nimby/nim/bin:$HOME/.local/bin:$PATH"
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1   # avoid thread thrash across concurrent runs
 mkdir -p logs results checkpoints
 
 TOTAL_STEPS=${TOTAL_STEPS:-4000000}
