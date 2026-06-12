@@ -15,5 +15,3 @@ windy 0.4.4 https://github.com/treeform/windy 7bced62dcc4fca9ebabd00bc593f89e3e6
 opengl 1.2.9 https://github.com/nim-lang/opengl 8e2e098f82dc5eefd874488c37b5830233cd18f4
 urlly 1.1.1 https://github.com/treeform/urlly 99784779f05649df25fd9c33003d8ef6de027345
 ws 0.5.0 https://github.com/treeform/ws cbb8f763b436669392d10baec2a45778395395cc
-silky 0.0.1 https://github.com/treeform/silky b98f9c2b0739442d3ac8e74bf0ab6b1972754d0e
-jsony 1.1.5 https://github.com/treeform/jsony c081acd7f6af1ecadfca6ccba633a339cc6c80cd
