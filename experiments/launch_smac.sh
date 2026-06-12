@@ -5,6 +5,7 @@ cd "$(dirname "$0")/.."
 export PATH="$HOME/.local/bin:$PATH"
 export SC2PATH=${SC2PATH:-/home/tasha/StarCraftII}
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
+export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python  # pysc2 protos + wandb coexist on protobuf 4.x
 mkdir -p logs results checkpoints
 
 TOTAL_STEPS=${TOTAL_STEPS:-2000000}
