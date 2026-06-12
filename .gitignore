@@ -125,3 +125,9 @@ scorecards/
 # Session artifacts
 CLAUDE.md
 STATUS_LOG.md
+
+# experiment artifacts
+/logs/
+/checkpoints/
+/results/
+/wandb/
