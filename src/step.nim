@@ -947,6 +947,8 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
             let remaining = stored - 1
             if rewardAmount != 0:
               env.rewards[id] += rewardAmount
+            if key == ItemGold:  # chain stage 0: gather
+              env.stageEvents[id][0] += 1.0'f32
             if remaining <= 0:
               removeThing(env, thing)
             else:
@@ -1100,6 +1102,7 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
             thing.cooldown = 0
             if agent.inventoryBar == 1:
               env.rewards[id] += env.config.barReward
+            env.stageEvents[id][1] += 1.0'f32  # chain stage 1: craft (smelt gold->bar)
             used = true
         of WeavingLoom:
           if thing.cooldown == 0 and agent.inventoryLantern == 0 and
@@ -1170,6 +1173,7 @@ proc step*(env: Environment, actions: ptr array[MapAgents, uint16]) =
                   thing.cooldown = MapObjectAltarCooldown
                   env.updateObservations(altarHeartsLayer, thing.pos, thing.hearts)
                   env.rewards[id] += env.config.heartReward
+                  env.stageEvents[id][2] += 1.0'f32  # chain stage 2: deposit (bar->heart at altar)
                   used = true
               of UseClayOven:
                 if thing.cooldown == 0:
@@ -2386,6 +2390,8 @@ proc reset*(env: Environment, seed: int = 0) =
   env.currentStep = 0
   env.shouldReset = false
   env.rewards.clear()
+  for i in 0 ..< MapAgents:
+    env.stageEvents[i] = [0.0'f32, 0.0'f32, 0.0'f32]
   env.terminated.clear()
   env.truncated.clear()
   env.things.setLen(0)

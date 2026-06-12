@@ -1386,6 +1386,9 @@ type
       ]
     ]
     rewards*: array[MapAgents, float32]
+    # Per-agent chain-stage event counters (gather gold, craft bar, deposit heart).
+    # Accumulated within a step; read+reset via FFI for division-of-labor reward shaping.
+    stageEvents*: array[MapAgents, array[3, float32]]
     terminated*: array[MapAgents, float32]
     truncated*: array[MapAgents, float32]
     stats*: seq[Stats]

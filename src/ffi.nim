@@ -212,6 +212,24 @@ proc tribal_village_step_with_pointers(
   except CatchableError:
     return 0
 
+proc tribal_village_get_stage_events(
+  env: pointer,
+  out_buffer: ptr UncheckedArray[float32]   # [MapAgents, 3] gather/craft/deposit
+): int32 {.exportc, dynlib.} =
+  ## Copy per-agent chain-stage event counts accumulated since the last call,
+  ## then reset them. Layout: agent i -> [gather, craft, deposit] at i*3.
+  try:
+    if isNil(globalEnv):
+      return 0
+    for i in 0 ..< MapAgents:
+      out_buffer[i * 3 + 0] = globalEnv.stageEvents[i][0]
+      out_buffer[i * 3 + 1] = globalEnv.stageEvents[i][1]
+      out_buffer[i * 3 + 2] = globalEnv.stageEvents[i][2]
+      globalEnv.stageEvents[i] = [0.0'f32, 0.0'f32, 0.0'f32]
+    return 1
+  except CatchableError:
+    return 0
+
 proc tribal_village_get_num_agents(): int32 {.exportc, dynlib.} =
   MapAgents.int32
 
