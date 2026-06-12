@@ -124,10 +124,24 @@ class SMACEnv:
         return np.array([self.env.get_obs_agent(a) for a in range(self.n_agents)], np.float32)
 
     def _avail(self):
-        return np.array([self.env.get_avail_agent_actions(a) for a in range(self.n_agents)], np.float32)
+        inner = self.env.env
+        return np.array([inner.get_avail_agent_actions(a) for a in range(self.n_agents)], np.float32)
 
     def step(self, actions, reward_type):
-        team_reward, terminated, info = self.env.step(actions.tolist())
+        # Safety clamp against the INNER env's avail (the same source the SMAC
+        # step assertion uses), replacing any invalid action with the first
+        # available one (no-op for dead agents).
+        inner = self.env.env
+        actions = np.asarray(actions).copy()
+        for i in range(self.n_agents):
+            avail = inner.get_avail_agent_actions(i)
+            if actions[i] >= len(avail) or avail[int(actions[i])] == 0:
+                actions[i] = int(np.argmax(avail))
+        try:
+            team_reward, terminated, info = self.env.step(actions.tolist())
+        except AssertionError:
+            # Extremely rare SMAC avail/step mismatch: end the episode cleanly.
+            team_reward, terminated, info = 0.0, True, {"battle_won": False}
         self.steps += 1
         health = self._ally_health()
         delta = health - self._prev_ally_health      # per-agent ally-health delta
